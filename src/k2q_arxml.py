@@ -17,28 +17,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class ReadArxml:
-    filename_to_arxml = dict()
+class IOArxml:
+    filename_to_arxml: Dict[str, autosar.Autosar] = {}
 
-    def __init__(self):
+    def __init__(self, filepaths: List[str]):
+        self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
         self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
         self.xml_namespace = 'http://autosar.org/schema/r4.0'
         self.clazz = autosar.Autosar
+        self.parse(self)
 
-    def parse(self, filepaths: List) -> Dict[str, autosar.Autosar]:
-        logger.info(f'############# parsing {" ".join(filepaths)}')
+    def parse(self):
+        logger.info(f'############# parsing {" ".join(self.filepaths)}')
         xml_context = XmlContext()
         parser = XmlParser(context=xml_context, config=ParserConfig())
-        for filepath in filepaths:
+        for filepath in self.filepaths:
             logger.info(f'>> parsing {filepath}')
             ns_map = {}  # 保存命名空间的映射关系
             self.filename_to_arxml[filepath] = parser.parse(filepath, self.clazz, ns_map=ns_map)
             if (default_ns := ns_map[None]) != self.xml_namespace:  # 检查默认命名空间是否为预期的r4命名空间
                 logger.error(f'{filepath} ns: {default_ns}')
-        return self.filename_to_arxml
 
-    def flush(self):
+    def create(self, filepath: str, arxml_obj: autosar.Autosar):
+        logger.info(f'############# createing {filepath}')
+        self.filename_to_arxml[filepath] = arxml_obj
+
+    def flush_all(self):
         logger.info('############# Flushing cache to arxml file')
         xml_context = XmlContext()
         serializer = XmlSerializer(
@@ -57,31 +62,15 @@ class ReadArxml:
                 f.write(arxml_content)
 
 
-class Arxml:
-    def read_arxml(self, filepath: Union[List, str]) -> autosar.Autosar:
-        """parse arxml"""
-        return self.in_out.parse(filepath)
+class FuncArxml:
+    def __init__(self, io_arxml: IOArxml):
+        self.io_arxml = IOArxml()
+        self.cache_link_ar_package = dict()  # 缓存ar_package的快捷方式
+        for filepath, _ in io_arxml.filename_to_arxml.items():
+            self.link_ar_package(filepath)
 
-    @staticmethod
-    def get_ar_package(obj: Union[autosar.Autosar, autosar.ArPackage], short_name: str) -> Optional[autosar.ArPackage]:
-        """get obj of ar_package by short name"""
-
-        def _get_ar_package(_obj, _short_name: str):
-            for _ar_package in _obj.ar_packages.ar_package:
-                if _ar_package.short_name.value == _short_name:
-                    return _ar_package
-
-        ar_package = _get_ar_package(obj, short_name)
-
-        # 注入sub_ar_package方法
-        def sub_ar_package(self, short_name) -> Optional[autosar.ArPackage]:
-            return _get_ar_package(self, short_name)
-
-        import types
-
-        if ar_package is not None:
-            ar_package.sub_ar_package = types.MethodType(sub_ar_package, ar_package)
-        return ar_package
+    # AR-PACKAGE快捷方式
+    def link_ar_package(filepath): ...
 
     @classmethod
     def get_dict_ref_obj(cls, obj, ref=None, dict_top: Dict = None) -> Dict[str, dataclass]:
