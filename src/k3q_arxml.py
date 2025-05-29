@@ -1,13 +1,12 @@
 import logging
 from typing import List, Union, Optional, Dict
-from dataclasses import dataclass
+from dataclasses import dataclass,fields
 from xsdata.formats.dataclass.context import XmlContext
 from xsdata.formats.dataclass.parsers import XmlParser
 from xsdata.formats.dataclass.parsers.config import ParserConfig
 from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from .autosar import autosar_00045 as autosar
-from dataclasses import dataclass
 
 
 logging.basicConfig(
@@ -61,6 +60,11 @@ class IOArxml:
                 logger.info(f'>> Flushing {filepath}')
                 arxml_content = serializer.render(arxml_obj, ns_map={None: self.xml_namespace})
                 f.write(arxml_content)
+
+ArPackageSubs = [[j for k,v in i.metadata.items()] for i in fields(autosar.ArPackage.Elements) if i.name == 'choice'][0]
+print(ArPackageSubs)
+                               
+
 @dataclass
 class RefArPackage:
     ref: str
