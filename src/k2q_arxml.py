@@ -7,6 +7,7 @@ from xsdata.formats.dataclass.parsers.config import ParserConfig
 from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from .autosar import autosar_00045 as autosar
+from dataclasses import dataclass
 
 
 logging.basicConfig(
@@ -60,17 +61,36 @@ class IOArxml:
                 logger.info(f'>> Flushing {filepath}')
                 arxml_content = serializer.render(arxml_obj, ns_map={None: self.xml_namespace})
                 f.write(arxml_content)
+@dataclass
+class RefArPackage:
+    ref: str
+    ar_package: autosar.ArPackage
+    filepath: str
 
 
-class FuncArxml:
-    def __init__(self, io_arxml: IOArxml):
-        self.io_arxml = IOArxml()
-        self.cache_link_ar_package = dict()  # 缓存ar_package的快捷方式
-        for filepath, _ in io_arxml.filename_to_arxml.items():
-            self.link_ar_package(filepath)
+class Arxml:
+    def __init__(self, filepaths: List[str]):
+        self.io_arxml = IOArxml(filepaths)
 
-    # AR-PACKAGE快捷方式
-    def link_ar_package(filepath): ...
+    @property
+    def refpath_to_ar_package(self, filepath):
+        _refpath_to_ar_package = {}
+
+        def drill(obj, prefix=None):
+            if isinstance(obj, autosar.Autosar):  # 如果是Autosar对象，设置前缀为'/'
+                prefix = '/'
+                if hasattr(obj, 'ar_packages'):  # 如果有ar_packages，则继续下钻
+                    for i in obj.ar_packages.ar_package:
+                        drill(i, prefix)
+            else:  # 如果是ar_package对象
+                prefix = f'{prefix}/{obj.short_name.value}'
+                _refpath_to_ar_package[prefix] = obj
+                if hasattr(obj, 'ar_packages'):  # 如果有ar_packages，则继续下钻
+                    for i in obj.ar_packages.ar_package:
+                        drill(i, prefix)
+
+        for filepath, arxml_obj in self.io_arxml.filename_to_arxml.items():
+            return self.io_arxml.filename_to_arxml[filepath]
 
     @classmethod
     def get_dict_ref_obj(cls, obj, ref=None, dict_top: Dict = None) -> Dict[str, dataclass]:
