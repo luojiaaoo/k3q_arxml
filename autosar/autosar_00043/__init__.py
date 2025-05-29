@@ -1,4 +1,4 @@
-from pyarxml.autosar.autosar_00043.autosar_00043 import (
+from .autosar_00043 import (
     AbsoluteTolerance,
     AbstractAccessPointSubtypesEnum,
     AbstractClassTailoring,
@@ -1350,9 +1350,9 @@ from pyarxml.autosar.autosar_00043.autosar_00043 import (
     LinTpNodeSubtypesEnum,
     LinUnconditionalFrame,
     LinUnconditionalFrameSubtypesEnum,
+    List,
     ListEnum,
     ListEnumSimple,
-    ListType,
     LLongName,
     LogicAddress,
     LogicAddressSubtypesEnum,
@@ -2317,7 +2317,7 @@ from pyarxml.autosar.autosar_00043.autosar_00043 import (
     Xref,
     XrefTarget,
 )
-from pyarxml.autosar.autosar_00043.xml import SpaceValue
+from .xml import SpaceValue
 
 __all__ = [
     "AbsoluteTolerance",
@@ -3676,7 +3676,7 @@ __all__ = [
     "LinUnconditionalFrame",
     "LinUnconditionalFrameSubtypesEnum",
     "Linker",
-    "ListType",
+    "List",
     "ListEnum",
     "ListEnumSimple",
     "LogicAddress",
