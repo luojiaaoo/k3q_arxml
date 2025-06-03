@@ -1,7 +1,7 @@
 from xsdata.formats.dataclass.context import XmlContext
 from xsdata.formats.dataclass.parsers import XmlParser
 from xsdata.formats.dataclass.parsers.config import ParserConfig
-from k2q_arxml import autosar
+from k3q_arxml import autosar
 
 
 def print_arxml_obj(filepath):
