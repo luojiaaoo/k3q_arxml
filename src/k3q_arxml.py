@@ -93,12 +93,12 @@ class IOArxml:
                 continue
             elif isinstance(v, List):
                 for i in v:
-                    if 'short_name' in _vars(i):
+                    if hasattr(i, 'short_name'):
                         dict_top[ref + (i.short_name.value,)] = i
                         cls.__scan_ref(i, ref + (i.short_name.value,), dict_top)
                     else:
                         cls.__scan_ref(i, ref, dict_top)
-            elif 'short_name' in _vars(v):
+            elif hasattr(v, 'short_name'):
                 dict_top[ref + (v.short_name.value,)] = v
                 cls.__scan_ref(v, ref + (v.short_name.value,), dict_top)
             else:
