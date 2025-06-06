@@ -1,11 +1,19 @@
+import inspect
 import logging
-from typing import List, Union, Optional, Dict, Tuple
-from dataclasses import dataclass, fields
+import pprint
+from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Dict, Tuple, TypeAlias
+
 from xsdata.formats.dataclass.context import XmlContext
 from xsdata.formats.dataclass.parsers import XmlParser
 from xsdata.formats.dataclass.parsers.config import ParserConfig
+from xsdata.formats.dataclass.parsers.handlers import LxmlEventHandler
 from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
+from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
+
 from .autosar import autosar_00048 as autosar
 
 logging.basicConfig(
@@ -15,22 +23,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+Filename: TypeAlias = str
+Ref: TypeAlias = Tuple[str, ...]
+Uuid: TypeAlias = str
+
 
 class IOArxml:
-
-    def __init__(self, filepaths: List[str]):
-        self.filename_to_arxml: Dict[str, autosar.Autosar] = {}
-        self.filename_to_ref: Dict[str, Dict] = {}
+    def __init__(self, filepaths: List[Filename]):
+        # 储存文件对应的xml实例
+        self.filename_to_arxml: Dict[Filename, autosar.Autosar] = {}
+        # 储存ref path对应的文件名，非实时，需要scan_ref更新
+        self.ref_to_filename: Dict[Ref, Filename] = {}
+        # 储存ref path对应的xml实例，非实时，需要scan_ref更新
+        self.ref_to_arxml_obj: Dict[Ref, dataclass] = {}
+        # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典，需要scan_ref更新
+        self.ref_to_ref2arxml_obj: Dict[Ref, Dict[Ref, dataclass]] = {}
         self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
         self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
         self.xml_namespace = 'http://autosar.org/schema/r4.0'
         self.clazz = autosar.Autosar
+        self.parse()
+        self.scan_ref()
 
     def parse(self):
-        logger.info(f'############# parsing {" ".join(self.filepaths)}')
+        logger.info(f'############# Parse {" ".join(self.filepaths)}')
         xml_context = XmlContext()
-        parser = XmlParser(context=xml_context, config=ParserConfig())
+        parser = XmlParser(context=xml_context, config=ParserConfig(), handler=LxmlEventHandler)
         for filepath in self.filepaths:
             logger.info(f'>> parsing {filepath}')
             ns_map = {}  # 保存命名空间的映射关系
@@ -39,19 +58,58 @@ class IOArxml:
                 logger.error(f'{filepath} ns: {default_ns}')
         return self.filename_to_arxml
 
-    def scan_refs(self):
-        logger.info(f'############# scan cache {" ".join(self.filepaths)}')
-        for filepath in self.filepaths:
-            logger.info(f'>> scan cache {filepath}')
-            self.filename_to_ref[filepath] = self.__scan_ref(self.filename_to_arxml[filepath])
-        return self.filename_to_ref
+    def ref(self, ref: Tuple[str, ...]) -> dataclass:
+        """根据ref path返回xml实例"""
+        find_ref = lambda t: self.ref_to_arxml_obj.get(t, None)
+        return find_ref(ref)
 
-    def create_arxml(self, filepath: str, arxml_obj: autosar.Autosar):
-        logger.info(f'############# createing {filepath}')
+    def ref_to_ref(self, ref: Tuple[str, ...]) -> Dict[Ref, dataclass]:
+        """
+        搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典
+        可能因为人为添加引用，导致更新filename_to_ref2ref未更新，默认强制每次都全局搜索一遍
+        """
+        find_ref2ref = lambda t: self.ref_to_ref2arxml_obj.get(t, {})
+        return find_ref2ref(ref)
+
+    def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, dataclass]:
+        """根据类对象和ref前缀搜索对应的（ref字符串，xml实例）组成的字典"""
+        find_clazz = lambda t: {ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if
+                                ref[:len(t)] == t and isinstance(ref_to_arxml_obj, clazz)}
+        return find_clazz(ref_prefix)
+
+    def locate_filename(self, ref: Ref) -> Filename:
+        """根据ref path返回文件名"""
+        return self.ref_to_filename[ref]
+
+    def scan_ref(self, debug_uuid=False) -> None:
+        """ 搜索所有ref path """
+        stack = inspect.stack()
+        caller_name = stack[1].function
+        logger.info(f'############# Scan ref, trigger by {caller_name}')
+        filename_to_uuid: Dict[Filename, Dict[Uuid, Ref]] = {}
+        self.ref_to_filename: Dict[Ref, Filename] = {}
+        self.ref_to_arxml_obj: Dict[Ref, dataclass] = {}
+        for filepath in self.filepaths:
+            ref2obj, ref_to_ref2obj, uuid2ref = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
+            filename_to_uuid[filepath] = uuid2ref
+            for ref, obj in ref2obj.items():
+                if ref in self.ref_to_filename:
+                    logger.error(f'{filepath} ref {ref} already exists in {self.ref_to_filename[ref]}')
+                    raise ValueError()
+                self.ref_to_filename[ref] = filepath
+                self.ref_to_arxml_obj[ref] = obj
+            self.ref_to_ref2arxml_obj = ref_to_ref2obj
+        if debug_uuid:
+            pprint.pp(filename_to_uuid)
+        logger.info(f'############# Scan ref is done')
+
+    def create_arxml(self, filepath: Filename, arxml_obj: autosar.Autosar) -> None:
+        logger.info(f'############# Create {filepath}')
+        self.filepaths.append(filepath)
         self.filename_to_arxml[filepath] = arxml_obj
 
-    def flush_all(self):
-        logger.info('############# Flushing cache to arxml file')
+    def flush_to_file(self):
+        logger.info('############# Flush to arxml file')
         xml_context = XmlContext()
         serializer = XmlSerializer(
             xml_context,
@@ -61,6 +119,7 @@ class IOArxml:
                 xml_declaration=True,
                 ignore_default_attributes=True,
             ),
+            writer=LxmlEventWriter,
         )
         for filepath, arxml_obj in self.filename_to_arxml.items():
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -68,17 +127,34 @@ class IOArxml:
                 arxml_content = serializer.render(arxml_obj, ns_map={None: self.xml_namespace})
                 f.write(arxml_content)
 
-    def print(self, print_filepath):
-        import pprint
-        with open(print_filepath, 'w', encoding='utf-8') as f:
+    def print(self, print_filepath: Filename = None):
+        logger.info(f'############# Printing python format to {print_filepath}')
+        if print_filepath is None:
             for filename, arxml_obj in self.filename_to_arxml.items():
-                f.write(f'=== {filename} ===')
-                pprint.pprint(arxml_obj, stream=f, width=999999, underscore_numbers=True)
+                pprint.pprint(arxml_obj, width=40, indent=1, underscore_numbers=True)
+        else:
+            with open(print_filepath, 'w', encoding='utf-8') as f:
+                for filename, arxml_obj in self.filename_to_arxml.items():
+                    f.write(f'=== {filename} ===\n')
+                    pprint.pprint(arxml_obj, stream=f, width=40, indent=1, underscore_numbers=True)
+
+    @staticmethod
+    def ref_str2ref(ref_str: str) -> Ref:
+        """将ref字符串转为ref元组"""
+        return tuple(ref_str.split('/')[1:])
+
+    @staticmethod
+    def ref2ref_str(ref: Ref) -> str:
+        """将ref字符串转为ref元组"""
+        return '/' + '/'.join(ref)
 
     @classmethod
-    def __scan_ref(cls, obj, ref=None, dict_top: Dict = None) -> Dict[str, dataclass]:
-        if dict_top is None:
-            dict_top = {}
+    def __scan_arobj_ref(cls, obj, ref=None, dict_ref_from_short_name=None, dict_uuid=None, dict_search_obj_use_ref=None) -> Tuple[
+        Dict[Ref, dataclass], Dict[Ref, Dict[Ref, dataclass]], Dict[Uuid, Ref]]:
+        if dict_ref_from_short_name is None:
+            dict_ref_from_short_name = {}
+            dict_search_obj_use_ref = {}
+            dict_uuid = {}
         if ref is None:
             ref = tuple()
 
@@ -89,18 +165,33 @@ class IOArxml:
                 return {}
 
         for k, v in _vars(obj).items():
-            if callable(v):
+            if callable(v) or v is None or isinstance(v, (int, float, str, bool, Enum)):
                 continue
-            elif isinstance(v, List):
+            # print(type(v))
+            elif isinstance(v, Iterable):
                 for i in v:
-                    if hasattr(i, 'short_name'):
-                        dict_top[ref + (i.short_name.value,)] = i
-                        cls.__scan_ref(i, ref + (i.short_name.value,), dict_top)
+                    if hasattr(i, 'short_name') and 'autosar' in i.__class__.__module__:  # 搜索short_name节点
+                        dict_ref_from_short_name[ref + (i.short_name.value,)] = i
+                        if hasattr(i, 'uuid'):
+                            dict_uuid[i.uuid] = ref + (i.short_name.value,)
+                        cls.__scan_arobj_ref(i, ref + (i.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
                     else:
-                        cls.__scan_ref(i, ref, dict_top)
-            elif hasattr(v, 'short_name'):
-                dict_top[ref + (v.short_name.value,)] = v
-                cls.__scan_ref(v, ref + (v.short_name.value,), dict_top)
+                        if hasattr(i, 'value') and hasattr(i, 'dest') and type(i).__name__.endswith('Ref'):  # ref实例
+                            if (_ref := cls.ref_str2ref(i.value)) not in dict_search_obj_use_ref:
+                                dict_search_obj_use_ref[_ref] = {ref: i}
+                            else:
+                                dict_search_obj_use_ref[_ref][ref] = i
+                        cls.__scan_arobj_ref(i, ref, dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
+            elif hasattr(v, 'short_name') and 'autosar' in v.__class__.__module__:  # 搜索short_name节点
+                dict_ref_from_short_name[ref + (v.short_name.value,)] = v
+                if hasattr(v, 'uuid'):
+                    dict_uuid[v.uuid] = ref + (v.short_name.value,)
+                cls.__scan_arobj_ref(v, ref + (v.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
             else:
-                cls.__scan_ref(v, ref, dict_top)
-        return dict_top
+                if hasattr(v, 'value') and hasattr(v, 'dest') and type(v).__name__.endswith('Ref'):  # ref实例
+                    if (_ref := cls.ref_str2ref(v.value)) not in dict_search_obj_use_ref:
+                        dict_search_obj_use_ref[_ref] = {ref: v}
+                    else:
+                        dict_search_obj_use_ref[_ref][ref] = v
+                cls.__scan_arobj_ref(v, ref, dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
+        return dict_ref_from_short_name, dict_search_obj_use_ref, dict_uuid
