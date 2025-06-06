@@ -2,9 +2,8 @@ import inspect
 import logging
 import pprint
 from collections.abc import Iterable
-from dataclasses import dataclass
 from enum import Enum
-from typing import List, Dict, Tuple, TypeAlias
+from typing import List, Dict, Tuple, TypeAlias, Any
 from typing import TYPE_CHECKING
 
 from xsdata.formats.dataclass.context import XmlContext
@@ -40,9 +39,9 @@ class IOArxml:
         # 储存ref path对应的文件名，非实时，需要scan_ref更新
         self.ref_to_filename: Dict[Ref, Filename] = {}
         # 储存ref path对应的xml实例，非实时，需要scan_ref更新
-        self.ref_to_arxml_obj: Dict[Ref, dataclass] = {}
+        self.ref_to_arxml_obj: Dict[Ref, Any] = {}
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典，需要scan_ref更新
-        self.ref_to_arxml_obj_ref: Dict[Ref, List[Tuple[dataclass, Ref]]] = {}
+        self.ref_to_arxml_obj_ref: Dict[Ref, List[Tuple[Any, Ref]]] = {}
         self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
         self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
@@ -63,12 +62,12 @@ class IOArxml:
                 logger.error(f'{filepath} ns: {default_ns}')
         return self.filename_to_arxml
 
-    def ref(self, ref: Tuple[str, ...]) -> dataclass:
+    def ref(self, ref: Tuple[str, ...]) -> Any:
         """根据ref path返回xml实例"""
         find_ref = lambda t: self.ref_to_arxml_obj.get(t, None)
         return find_ref(ref)
 
-    def ref_to_ref(self, ref: Tuple[str, ...]) -> List[Tuple[dataclass, Ref]]:
+    def ref_to_ref(self, ref: Tuple[str, ...]) -> List[Tuple[Any, Ref]]:
         """
         搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典
         可能因为人为添加引用，导致更新filename_to_ref2ref未更新，默认强制每次都全局搜索一遍
@@ -76,7 +75,7 @@ class IOArxml:
         find_ref2ref = lambda t: self.ref_to_arxml_obj_ref.get(t, [])
         return find_ref2ref(ref)
 
-    def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, dataclass]:
+    def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, Any]:
         """根据类对象和ref前缀搜索对应的（ref字符串，xml实例）组成的字典"""
         find_clazz = lambda t: {ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if
                                 ref[: len(t)] == t and isinstance(ref_to_arxml_obj, clazz)}
@@ -93,7 +92,7 @@ class IOArxml:
         logger.info(f'############# Scan ref, trigger by {caller_name}')
         filename_to_uuid: Dict[Filename, Dict[Uuid, Ref]] = {}
         self.ref_to_filename: Dict[Ref, Filename] = {}
-        self.ref_to_arxml_obj: Dict[Ref, dataclass] = {}
+        self.ref_to_arxml_obj: Dict[Ref, Any] = {}
         for filepath in self.filepaths:
             ref2obj, ref_to_obj_ref, uuid2ref = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
             filename_to_uuid[filepath] = uuid2ref
@@ -156,7 +155,7 @@ class IOArxml:
     @classmethod
     def __scan_arobj_ref(
             cls, obj, ref=None, dict_ref_from_short_name=None, dict_uuid=None, dict_search_obj_use_ref=None
-    ) -> Tuple[Dict[Ref, dataclass], Dict[Ref, List[Tuple[dataclass, Ref]]], Dict[Uuid, Ref]]:
+    ) -> Tuple[Dict[Ref, Any], Dict[Ref, List[Tuple[Any, Ref]]], Dict[Uuid, Ref]]:
         if dict_ref_from_short_name is None:
             dict_ref_from_short_name = {}
             dict_search_obj_use_ref = {}
