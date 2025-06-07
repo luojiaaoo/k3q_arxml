@@ -16,44 +16,63 @@
 ## 用法
 
 ```python
-from pprint import pp # 可以美化打印对象，不然全打印在一行
+# 导入pprint模块的pp函数，用于美化打印对象
+# Import the pp function from pprint module for pretty-printing objects
+from pprint import pp  
+
+# 导入k3q_arxml库
+# Import k3q_arxml library
 import k3q_arxml
-# 加载arxml文件
+
+# 创建一个IOArxml实例，加载指定的ARXML文件（test/model_merge.arxml）
+# Create an IOArxml instance and load specified ARXML file (test/model_merge.arxml)
 io_arxml = k3q_arxml.IOArxml(filepaths=['test/model_merge.arxml'])
 
-# 打印arxml字符串绑定的python arxml实例
+# 将ARXML文件的内容打印到控制台或保存到文件（model_merge.txt）
+# Print ARXML content to console or save to file (model_merge.txt)
 io_arxml.print(print_filepath='model_merge.txt')
 
-# 刷新ref缓存数据，因为ref/ar/ref_to_ref/locate_filename访问的都是缓存数据，如果修改了数据后，影响到了ref，就需要主动刷新
+# 刷新引用缓存数据。如果修改了数据并影响了引用关系，需要调用此方法更新缓存
+# Refresh reference cache. Call this after modifications that affect references
 io_arxml.scan_ref()
 
-# 增/改，在多文件的情况下可能在多个文件里有相同路径，.default获取到的是第一个匹配的，如果需要获取指定文件的arxml对象，需要使用.filter(filename='xxx.arxml')
+# 在路径('Implementations', 'HWIO')下添加或修改resource_consumption属性
+# Add/modify resource_consumption under path ('Implementations', 'HWIO')
 io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = k3q_arxml.autosar.ResourceConsumption(
     short_name=k3q_arxml.autosar.Identifier(value='resourceConsumption'))
 
-# 删
+# 两种方式删除resource_consumption属性：1.使用del语句 2.将其设置为None
+# Two ways to delete resource_consumption: 1. del statement 2. Set to None
 del io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption
 io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = None
 
-# 查
-## 根据ref查arxml实例
+# 根据引用路径('Implementations', 'HWIO')查询对应的ARXML实例
+# Query ARXML instance by reference path ('Implementations', 'HWIO')
 io_arxml.ref(('Implementations', 'HWIO'))
-## 根据ref查哪些arxml实例用到了该ref
+
+# 查询哪些ARXML实例引用了路径('Implementations', 'HWIO')
+# Find which instances reference path ('Implementations', 'HWIO')
 io_arxml.ref_to_ref(('Implementations', 'HWIO'))
-## 根据标签查arxml实例（该需要带有short_name属性）
+
+# 查询所有ResourceConsumption类型的实例
+# Find all instances of ResourceConsumption type
 io_arxml.ar(clazz=k3q_arxml.autosar.ResourceConsumption)
-## 根据标签查arxml实例，但限定ref路径下查找（该需要带有short_name属性）
+
+# 在路径('Implementations',)下查询ResourceConsumption类型的实例
+# Find ResourceConsumption instances under path ('Implementations',)
 io_arxml.ar(clazz=k3q_arxml.autosar.ResourceConsumption, ref_prefix=('Implementations',))
 
-# 辅助函数
-## 控制台打印uuid到ref的映射关系，能通过uuid快速定位ref路径，辅助编码
+# 打印UUID与引用路径的映射关系，便于通过UUID快速定位引用路径
+# Print UUID-to-reference mapping for debugging reference paths
 io_arxml.scan_ref(debug_uuid=True)
 
-# 切换autosar_00052版本，默认为autosar_00048
+# 将AUTOSAR版本从默认的autosar_00048切换到autosar_00052
+# Switch AUTOSAR version from default autosar_00048 to autosar_00052
 from autosar import autosar_00052
 k3q_arxml.autosar = autosar_00052
 
-# 回写到文件
+# 将修改后的数据写回原始ARXML文件
+# Write modified data back to original ARXML file
 io_arxml.flush_to_file()
 ```
 
