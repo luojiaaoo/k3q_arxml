@@ -33,13 +33,18 @@ Uuid: TypeAlias = str
 
 
 class ArxmlObject:
-    def __init__(self, xml_obj: Any, filename: Filename, ref: Ref):
+    def __init__(self, xml_obj: Any, filename: Filename, ref: Ref, is_leaf: bool):
         self.ref = ref
         self.short_name = ref[-1]
         self.xml_objs = [xml_obj]
         self.filenames = [filename]
+        self.is_leaf = is_leaf
 
     def add_xml_obj(self, xml_obj: Any, filename: Filename):
+        # 叶子ref只能有一个xml实例，不能重复定义
+        if self.is_leaf:
+            raise ValueError(f'ref {IOArxml.ref2ref_str(self.ref)} duplicate definition in {self.filenames[0]} and {filename}')
+        # 同样的路径，标签必须一样
         if type(self.xml_objs[0]) is not type(xml_obj):
             raise TypeError(f'Expected xml_obj of type {type(self.xml_objs[0])}, got {type(xml_obj)}')
         self.xml_objs.append(xml_obj)
@@ -58,11 +63,15 @@ class ArxmlObject:
     @property
     def default(self) -> Any:
         """返回第一个xml实例"""
+        if self.is_multi:
+            raise ValueError(f'ref {IOArxml.ref2ref_str(self.ref)} has multiple xml instances, file: {",".join(self.filenames)}, use filter(filename=xxx) or for to access them')
         return self.xml_objs[0]
 
     @property
     def default_filename(self) -> Filename:
         """返回第一个xml实例对应的文件名"""
+        if self.is_multi:
+            raise ValueError(f'ref {IOArxml.ref2ref_str(self.ref)} has multiple xml instances, file: {",".join(self.filenames)}, use filter(filename=xxx) or for to access them')
         return self.filenames[0]
 
     def filter(self, filename: Filename) -> List[Any]:
@@ -70,9 +79,10 @@ class ArxmlObject:
         return [obj for obj, fn in zip(self.xml_objs, self.filenames) if fn == filename]
 
     def __getitem__(self, index):
+        """遍历获取xml实例和对应的文件名"""
         if index >= len(self.xml_objs):
             raise IndexError
-        return self.xml_objs[index]
+        return self.xml_objs[index], self.filenames[index]
 
 
 class IOArxml:
@@ -130,12 +140,25 @@ class IOArxml:
         logger.info(f'############# Scan ref, trigger by {caller_name}')
         filename_to_uuid: Dict[Filename, Dict[Uuid, Ref]] = {}
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
+        temp = {}
         for filepath in self.filepaths:
-            ref2obj, ref_to_arxml_ref_obj_ref, uuid2ref = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
+            temp[filepath] = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
+
+        # 用于判断哪些ref是叶子ref
+        all_refs: List[Ref] = []
+        for _, (ref2obj, _, _) in temp.items():
+            all_refs.extend(ref2obj.keys())
+        all_refs = list(set(all_refs))
+        leaf_refs = sorted(all_refs, key=lambda x: -len(x))
+        for leaf_ref in leaf_refs[::-1]:
+            if any(leaf_ref == i[: len(leaf_ref)] and leaf_ref != i for i in leaf_refs):
+                leaf_refs.remove(leaf_ref)  # 删除非叶子ref，只留下叶子节点
+
+        for filepath, (ref2obj, ref_to_arxml_ref_obj_ref, uuid2ref) in temp.items():
             filename_to_uuid[filepath] = uuid2ref
             for ref, obj in ref2obj.items():
                 if ref not in self.ref_to_arxml_obj:
-                    self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref)
+                    self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref, is_leaf=ref in leaf_refs)
                 else:
                     self.ref_to_arxml_obj[ref].add_xml_obj(xml_obj=obj, filename=filepath)
             self.ref_to_arxml_ref_obj_ref = ref_to_arxml_ref_obj_ref
