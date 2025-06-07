@@ -32,16 +32,57 @@ Ref: TypeAlias = Tuple[str, ...]
 Uuid: TypeAlias = str
 
 
+class ArxmlObject:
+    def __init__(self, xml_obj: Any, filename: Filename, ref: Ref):
+        self.ref = ref
+        self.short_name = ref[-1]
+        self.xml_objs = [xml_obj]
+        self.filenames = [filename]
+
+    def add_xml_obj(self, xml_obj: Any, filename: Filename):
+        if type(self.xml_objs[0]) is not type(xml_obj):
+            raise TypeError(f'Expected xml_obj of type {type(self.xml_objs[0])}, got {type(xml_obj)}')
+        self.xml_objs.append(xml_obj)
+        self.filenames.append(filename)
+
+    @property
+    def is_multi(self) -> int:
+        """返回xml实例数量"""
+        return len(self.xml_objs) > 1
+
+    @property
+    def is_ar_package(self) -> bool:
+        """判断xml实例是否为ArPackage类型"""
+        return isinstance(self.xml_objs[0], autosar.ArPackage)
+
+    @property
+    def default(self) -> Any:
+        """返回第一个xml实例"""
+        return self.xml_objs[0]
+
+    @property
+    def default_filename(self) -> Filename:
+        """返回第一个xml实例对应的文件名"""
+        return self.filenames[0]
+
+    def filter(self, filename: Filename) -> List[Any]:
+        """根据文件名过滤xml实例"""
+        return [obj for obj, fn in zip(self.xml_objs, self.filenames) if fn == filename]
+
+    def __getitem__(self, index):
+        if index >= len(self.xml_objs):
+            raise IndexError
+        return self.xml_objs[index]
+
+
 class IOArxml:
     def __init__(self, filepaths: List[Filename]):
         # 储存文件对应的xml实例
         self.filename_to_arxml: Dict[Filename, autosar.Autosar] = {}
-        # 储存ref path对应的文件名，非实时，需要scan_ref更新
-        self.ref_to_filename: Dict[Ref, Filename] = {}
         # 储存ref path对应的xml实例，非实时，需要scan_ref更新
-        self.ref_to_arxml_obj: Dict[Ref, Any] = {}
+        self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典，需要scan_ref更新
-        self.ref_to_arxml_obj_ref: Dict[Ref, List[Tuple[Any, Ref]]] = {}
+        self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref]]] = {}
         self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
         self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
@@ -62,8 +103,8 @@ class IOArxml:
                 logger.error(f'{filepath} ns: {default_ns}')
         return self.filename_to_arxml
 
-    def ref(self, ref: Tuple[str, ...]) -> Any:
-        """根据ref path返回xml实例"""
+    def ref(self, ref: Tuple[str, ...]) -> ArxmlObject:
+        """根据ref path返回arxml实例"""
         find_ref = lambda t: self.ref_to_arxml_obj.get(t, None)
         return find_ref(ref)
 
@@ -72,18 +113,15 @@ class IOArxml:
         搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典
         可能因为人为添加引用，导致更新filename_to_ref2ref未更新，默认强制每次都全局搜索一遍
         """
-        find_ref2ref = lambda t: self.ref_to_arxml_obj_ref.get(t, [])
+        find_ref2ref = lambda t: self.ref_to_arxml_ref_obj_ref.get(t, [])
         return find_ref2ref(ref)
 
-    def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, Any]:
+    def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, ArxmlObject]:
         """根据类对象和ref前缀搜索对应的（ref字符串，xml实例）组成的字典"""
-        find_clazz = lambda t: {ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if
-                                ref[: len(t)] == t and isinstance(ref_to_arxml_obj, clazz)}
+        find_clazz = lambda t: {
+            ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if ref[: len(t)] == t and isinstance(ref_to_arxml_obj.default, clazz)
+        }
         return find_clazz(ref_prefix)
-
-    def locate_filename(self, ref: Ref) -> Filename:
-        """根据ref path返回文件名"""
-        return self.ref_to_filename[ref]
 
     def scan_ref(self, debug_uuid=False) -> None:
         """搜索所有ref path"""
@@ -91,18 +129,16 @@ class IOArxml:
         caller_name = stack[1].function
         logger.info(f'############# Scan ref, trigger by {caller_name}')
         filename_to_uuid: Dict[Filename, Dict[Uuid, Ref]] = {}
-        self.ref_to_filename: Dict[Ref, Filename] = {}
-        self.ref_to_arxml_obj: Dict[Ref, Any] = {}
+        self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
         for filepath in self.filepaths:
-            ref2obj, ref_to_obj_ref, uuid2ref = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
+            ref2obj, ref_to_arxml_ref_obj_ref, uuid2ref = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
             filename_to_uuid[filepath] = uuid2ref
             for ref, obj in ref2obj.items():
-                if ref in self.ref_to_filename:
-                    logger.error(f'{filepath} ref {ref} already exists in {self.ref_to_filename[ref]}')
-                    raise ValueError()
-                self.ref_to_filename[ref] = filepath
-                self.ref_to_arxml_obj[ref] = obj
-            self.ref_to_arxml_obj_ref = ref_to_obj_ref
+                if ref not in self.ref_to_arxml_obj:
+                    self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref)
+                else:
+                    self.ref_to_arxml_obj[ref].add_xml_obj(xml_obj=obj, filename=filepath)
+            self.ref_to_arxml_ref_obj_ref = ref_to_arxml_ref_obj_ref
         if debug_uuid:
             pprint.pp(filename_to_uuid)
         logger.info('############# Scan ref is done')
@@ -154,7 +190,7 @@ class IOArxml:
 
     @classmethod
     def __scan_arobj_ref(
-            cls, obj, ref=None, dict_ref_from_short_name=None, dict_uuid=None, dict_search_obj_use_ref=None
+        cls, obj, ref=None, dict_ref_from_short_name=None, dict_uuid=None, dict_search_obj_use_ref=None
     ) -> Tuple[Dict[Ref, Any], Dict[Ref, List[Tuple[Any, Ref]]], Dict[Uuid, Ref]]:
         if dict_ref_from_short_name is None:
             dict_ref_from_short_name = {}

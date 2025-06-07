@@ -27,13 +27,13 @@ io_arxml.print(print_filepath='model_merge.txt')
 # 刷新ref缓存数据，因为ref/ar/ref_to_ref/locate_filename访问的都是缓存数据，如果修改了数据后，影响到了ref，就需要主动刷新
 io_arxml.scan_ref()
 
-# 增/改
-io_arxml.ref(('Implementations', 'HWIO')).resource_consumption = k3q_arxml.autosar.ResourceConsumption(
+# 增/改，在多文件的情况下可能在多个文件里有相同路径，.default获取到的是第一个匹配的，如果需要获取指定文件的arxml对象，需要使用.filter(filename='xxx.arxml')
+io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = k3q_arxml.autosar.ResourceConsumption(
     short_name=k3q_arxml.autosar.Identifier(value='resourceConsumption'))
 
 # 删
-del io_arxml.ref(('Implementations', 'HWIO')).resource_consumption
-io_arxml.ref(('Implementations', 'HWIO')).resource_consumption = None
+del io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption
+io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = None
 
 # 查
 ## 根据ref查arxml实例
@@ -48,8 +48,6 @@ io_arxml.ar(clazz=k3q_arxml.autosar.ResourceConsumption, ref_prefix=('Implementa
 # 辅助函数
 ## 控制台打印uuid到ref的映射关系，能通过uuid快速定位ref路径，辅助编码
 io_arxml.scan_ref(debug_uuid=True)
-## 获取路径在那个arxml文件里
-io_arxml.locate_filename(ref=('Implementations',))
 
 # 切换autosar_00052版本，默认为autosar_00048
 from autosar import autosar_00052
