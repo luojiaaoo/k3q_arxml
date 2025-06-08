@@ -4,7 +4,7 @@ from .k3q_arxml import IOArxml, autosar
 from .lazy_import import LazyImport
 
 if TYPE_CHECKING:
-    from .autosar import (
+    from .arxml_binding import (
         autosar_4_2_2,
         autosar_00043,
         autosar_00044,
@@ -35,4 +35,4 @@ __all__ = [
 ]
 
 for name in __all__[2:]:
-    globals()[name] = LazyImport(__package__ + '.autosar.' + name)
+    globals()[name] = LazyImport(__package__ + '.arxml_binding.' + name)

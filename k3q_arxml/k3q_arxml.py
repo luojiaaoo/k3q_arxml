@@ -16,9 +16,9 @@ from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .lazy_import import LazyImport
 
-autosar = LazyImport(f'{__package__}.autosar.autosar_00048')
+autosar = LazyImport(f'{__package__}.arxml_binding.autosar_00048')
 if TYPE_CHECKING:
-    from .autosar import autosar_00048 as autosar
+    from .arxml_binding import autosar_00048 as autosar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,17 +33,17 @@ Uuid: TypeAlias = str
 
 
 class ArxmlObject:
-    def __init__(self, xml_obj: Any, filename: Filename, ref: Ref, is_leaf: bool):
+    def __init__(self, xml_obj: Any, filename: Filename, ref: Ref):
         self.ref = ref
         self.short_name = ref[-1]
         self.xml_objs = [xml_obj]
         self.filenames = [filename]
-        self.is_leaf = is_leaf
+        # self.is_leaf = is_leaf
 
     def add_xml_obj(self, xml_obj: Any, filename: Filename):
-        # 叶子ref只能有一个xml实例，不能重复定义
-        if self.is_leaf:
-            raise ValueError(f'ref {IOArxml.ref2ref_str(self.ref)} duplicate definition in {self.filenames[0]} and {filename}')
+        # # 叶子ref只能有一个xml实例，不能重复定义
+        # if self.is_leaf:
+        #     raise ValueError(f'ref {IOArxml.ref2ref_str(self.ref)} duplicate definition in {self.filenames[0]} and {filename}')
         # 同样的路径，标签必须一样
         if type(self.xml_objs[0]) is not type(xml_obj):
             raise TypeError(f'Expected xml_obj of type {type(self.xml_objs[0])}, got {type(xml_obj)}')
@@ -145,21 +145,21 @@ class IOArxml:
         for filepath in self.filepaths:
             temp[filepath] = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
 
-        # 用于判断哪些ref是叶子ref
-        all_refs: List[Ref] = []
-        for _, (ref2obj, _, _) in temp.items():
-            all_refs.extend(ref2obj.keys())
-        all_refs = list(set(all_refs))
-        leaf_refs = sorted(all_refs, key=lambda x: -len(x))
-        for leaf_ref in leaf_refs[::-1]:
-            if any(leaf_ref == i[: len(leaf_ref)] and leaf_ref != i for i in leaf_refs):
-                leaf_refs.remove(leaf_ref)  # 删除非叶子ref，只留下叶子节点
+        # # 用于判断哪些ref是叶子ref
+        # all_refs: List[Ref] = []
+        # for _, (ref2obj, _, _) in temp.items():
+        #     all_refs.extend(ref2obj.keys())
+        # all_refs = list(set(all_refs))
+        # leaf_refs = sorted(all_refs, key=lambda x: -len(x))
+        # for leaf_ref in leaf_refs[::-1]:
+        #     if any(leaf_ref == i[: len(leaf_ref)] and leaf_ref != i for i in leaf_refs):
+        #         leaf_refs.remove(leaf_ref)  # 删除非叶子ref，只留下叶子节点
 
         for filepath, (ref2obj, ref_to_arxml_ref_obj_ref, uuid2ref) in temp.items():
             filename_to_uuid[filepath] = uuid2ref
             for ref, obj in ref2obj.items():
                 if ref not in self.ref_to_arxml_obj:
-                    self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref, is_leaf=ref in leaf_refs)
+                    self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref)
                 else:
                     self.ref_to_arxml_obj[ref].add_xml_obj(xml_obj=obj, filename=filepath)
             for ref, i in ref_to_arxml_ref_obj_ref.items():
