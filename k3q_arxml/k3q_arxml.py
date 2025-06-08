@@ -118,9 +118,9 @@ class IOArxml:
         find_ref = lambda t: self.ref_to_arxml_obj.get(t, None)
         return find_ref(ref)
 
-    def ref_to_ref(self, ref: Tuple[str, ...]) -> List[Tuple[Any, Ref]]:
+    def ref_to_ref(self, ref: Tuple[str, ...]) -> List[Tuple[Any, Ref, Filename]]:
         """
-        搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典
+        搜索哪些ref path引用到了输入参数的ref path，返回refA->（引用refA的xml ref实例/xml ref实例所在的refB/refB的arxml文件名）的嵌套元组
         可能因为人为添加引用，导致更新filename_to_ref2ref未更新，默认强制每次都全局搜索一遍
         """
         find_ref2ref = lambda t: self.ref_to_arxml_ref_obj_ref.get(t, [])
