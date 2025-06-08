@@ -87,9 +87,9 @@ class ArxmlObject:
 
 class IOArxml:
     def __init__(self, filepaths: List[Filename]):
-        # 储存文件对应的xml实例
+        # 储存文件对应的Autosar实例
         self.filename_to_arxml: Dict[Filename, autosar.Autosar] = {}
-        # 储存ref path对应的xml实例，非实时，需要scan_ref更新
+        # 储存ref path对应的ArxmlObject实例，非实时，需要scan_ref更新
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（引用refA的xml ref实例/xml ref实例所在的refB/refB的arxml文件名）的嵌套元组，需要scan_ref更新
         self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref, Filename]]] = {}
