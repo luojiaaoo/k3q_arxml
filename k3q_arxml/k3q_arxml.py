@@ -91,7 +91,7 @@ class IOArxml:
         self.filename_to_arxml: Dict[Filename, autosar.Autosar] = {}
         # 储存ref path对应的xml实例，非实时，需要scan_ref更新
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
-        # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典，需要scan_ref更新
+        # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（引用refA的xml ref实例/xml ref实例所在的refB/refB的arxml文件名）的嵌套元组，需要scan_ref更新
         self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref, Filename]]] = {}
         self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
