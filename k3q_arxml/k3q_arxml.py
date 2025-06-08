@@ -92,7 +92,7 @@ class IOArxml:
         # 储存ref path对应的xml实例，非实时，需要scan_ref更新
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（用到refA的RefB->RefB的Ref标签xml实例）的嵌套字典，需要scan_ref更新
-        self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref]]] = {}
+        self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref, Filename]]] = {}
         self.filepaths = filepaths
         r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
         self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
@@ -140,6 +140,7 @@ class IOArxml:
         logger.info(f'############# Scan ref, trigger by {caller_name}')
         filename_to_uuid: Dict[Filename, Dict[Uuid, Ref]] = {}
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
+        self.ref_to_arxml_ref_obj_ref: Dict[Ref, List[Tuple[Any, Ref, Filename]]] = {}
         temp = {}
         for filepath in self.filepaths:
             temp[filepath] = self.__scan_arobj_ref(self.filename_to_arxml[filepath])
@@ -161,7 +162,12 @@ class IOArxml:
                     self.ref_to_arxml_obj[ref] = ArxmlObject(xml_obj=obj, filename=filepath, ref=ref, is_leaf=ref in leaf_refs)
                 else:
                     self.ref_to_arxml_obj[ref].add_xml_obj(xml_obj=obj, filename=filepath)
-            self.ref_to_arxml_ref_obj_ref = ref_to_arxml_ref_obj_ref
+            for ref, i in ref_to_arxml_ref_obj_ref.items():
+                for arxml_obj, ref_ in i:
+                    if ref not in self.ref_to_arxml_ref_obj_ref:
+                        self.ref_to_arxml_ref_obj_ref[ref] = [(arxml_obj, ref_, filepath)]
+                    else:
+                        self.ref_to_arxml_ref_obj_ref[ref].append((arxml_obj, ref_, filepath))
         if debug_uuid:
             pprint.pp(filename_to_uuid)
         logger.info('############# Scan ref is done')

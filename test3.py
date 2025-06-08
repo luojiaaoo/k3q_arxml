@@ -1,7 +1,7 @@
 from k3q_arxml import IOArxml, autosar
 
 io_arxml = IOArxml(filepaths=['test/model_merge.arxml'])
-for ref_s, t_obj_ref in io_arxml.ref_to_arxml_obj_ref.items():
+for ref_s, t_obj_ref, filename in io_arxml.ref_to_arxml_obj_ref.items():
     is_ApplicationDataTypeRef = False
     obj_s = io_arxml.ref(ref=ref_s).default
     for obj, _ in t_obj_ref:
