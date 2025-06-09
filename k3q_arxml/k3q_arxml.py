@@ -94,8 +94,8 @@ class IOArxml:
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（引用refA的xml ref实例/xml ref实例所在的refB/refB的arxml文件名）的嵌套元组，需要scan_ref更新
         self.ref_to_arxml_ref_obj_filename_ref: Dict[Ref, List[Tuple[Any, Ref, Filename]]] = {}
         self.filepaths = filepaths
-        r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1])[-5:].isdigit() else ver.replace('_', '-')
-        self.xml_schema_location = f'http://www.autosar.org/schema/r4.0 autosar_{r4_schema_ver_suffix}.xsd'
+        r4_schema_ver_suffix = ver if (ver := autosar.__name__.split('.')[-1][-5:]).isdigit() else ver.replace('_', '-')
+        self.xml_schema_location = f'http://autosar.org/schema/r4.0 AUTOSAR_{r4_schema_ver_suffix}.xsd'
         self.xml_namespace = 'http://autosar.org/schema/r4.0'
         self.clazz = autosar.Autosar
         self.parse()

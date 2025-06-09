@@ -68,8 +68,9 @@ io_arxml.scan_ref(debug_uuid=True)
 
 # 将AUTOSAR版本从默认的autosar_00048切换到autosar_00052
 # Switch AUTOSAR version from default autosar_00048 to autosar_00052
-from autosar import autosar_00052
-k3q_arxml.autosar = autosar_00052
+from k3q_arxml import change_autosar_version
+change_autosar_version('autosar_4_2_2')
+from k3q_arxml import IOArxml, autosar # 此时导入就是新版本的autosar
 
 # 将修改后的数据写回原始ARXML文件
 # Write modified data back to original ARXML file

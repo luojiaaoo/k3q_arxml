@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from .k3q_arxml import IOArxml, autosar
+from .k3q_arxml import IOArxml, autosar, logger
 from .lazy_import import LazyImport
 
 if TYPE_CHECKING:
@@ -17,10 +17,7 @@ if TYPE_CHECKING:
         autosar_00051,
         autosar_00052,
     )
-
-__all__ = [
-    'IOArxml',
-    'autosar',
+_arxml_binding = [
     'autosar_4_2_2',
     'autosar_00043',
     'autosar_00044',
@@ -33,6 +30,21 @@ __all__ = [
     'autosar_00051',
     'autosar_00052',
 ]
+__all__ = [
+    'IOArxml',
+    'autosar',
+    'change_autosar_version',
+    'logger',
+    *_arxml_binding,
+]
 
-for name in __all__[2:]:
+for name in _arxml_binding:
     globals()[name] = LazyImport(__package__ + '.arxml_binding.' + name)
+
+
+def change_autosar_version(version: str) -> None:
+    global autosar
+    from . import k3q_arxml
+
+    autosar = LazyImport(f'{__package__}.arxml_binding.{version}')
+    k3q_arxml.autosar = autosar
