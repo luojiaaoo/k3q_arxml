@@ -1,6 +1,7 @@
 import inspect
 import logging
 import pprint
+import re
 from collections.abc import Iterable
 from enum import Enum
 from typing import List, Dict, Tuple, TypeAlias, Any
@@ -89,6 +90,7 @@ class IOArxml:
     def __init__(self, filepaths: List[Filename]):
         # 储存文件对应的Autosar实例
         self.filename_to_arxml: Dict[Filename, autosar.Autosar] = {}
+        self.filename_to_arxml_indent: Dict[Filename, str] = {}
         # 储存ref path对应的ArxmlObject实例，非实时，需要scan_ref更新
         self.ref_to_arxml_obj: Dict[Ref, ArxmlObject] = {}
         # 搜索哪些ref path引用到了输入参数的ref path，返回refA->（引用refA的xml ref实例/xml ref实例所在的refB/refB的arxml文件名）的嵌套元组，需要scan_ref更新
@@ -101,6 +103,16 @@ class IOArxml:
         self.parse()
         self.scan_ref()
 
+    def get_indent_from_file(self, filepath: Filename) -> str:
+        """从文件中获取缩进格式"""
+        with open(filepath, 'r', encoding='utf-8') as f:
+            while _line := f.readline():
+                if re.match('^<AUTOSAR', _line):
+                    while _line2 := f.readline():
+                        if indent := re.search('^(\s*)<', _line2):
+                            return indent.group(1)
+        return ' ' * 4
+
     def parse(self):
         logger.info(f'############# Parse {" ".join(self.filepaths)}')
         xml_context = XmlContext()
@@ -108,6 +120,7 @@ class IOArxml:
         for filepath in self.filepaths:
             logger.info(f'>> parsing {filepath}')
             ns_map = {}  # 保存命名空间的映射关系
+            self.filename_to_arxml_indent[filepath] = self.get_indent_from_file(filepath)
             self.filename_to_arxml[filepath] = parser.parse(filepath, self.clazz, ns_map=ns_map)
             if (default_ns := ns_map[None]) != self.xml_namespace:  # 检查默认命名空间是否为预期的r4命名空间
                 logger.error(f'{filepath} ns: {default_ns}')
@@ -129,7 +142,7 @@ class IOArxml:
     def ar(self, clazz, ref_prefix: Tuple[str, ...] = tuple()) -> Dict[Ref, ArxmlObject]:
         """根据类对象和ref前缀搜索对应的（ref字符串，xml实例）组成的字典"""
         find_clazz = lambda t: {
-            ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if ref[: len(t)] == t and isinstance(ref_to_arxml_obj.default, clazz)
+            ref: ref_to_arxml_obj for ref, ref_to_arxml_obj in self.ref_to_arxml_obj.items() if ref[: len(t)] == t and isinstance(ref_to_arxml_obj.xml_objs[0], clazz)
         }
         return find_clazz(ref_prefix)
 
@@ -176,21 +189,22 @@ class IOArxml:
         logger.info(f'############# Create {filepath}')
         self.filepaths.append(filepath)
         self.filename_to_arxml[filepath] = arxml_obj
+        self.filename_to_arxml_indent[filepath] = ' ' * 4
 
     def flush_to_file(self):
         logger.info('############# Flush to arxml file')
-        xml_context = XmlContext()
-        serializer = XmlSerializer(
-            xml_context,
-            config=SerializerConfig(
-                indent='  ',
-                schema_location=self.xml_schema_location,
-                xml_declaration=True,
-                ignore_default_attributes=True,
-            ),
-            writer=LxmlEventWriter,
-        )
         for filepath, arxml_obj in self.filename_to_arxml.items():
+            xml_context = XmlContext()
+            serializer = XmlSerializer(
+                xml_context,
+                config=SerializerConfig(
+                    indent=self.filename_to_arxml_indent[filepath],
+                    schema_location=self.xml_schema_location,
+                    xml_declaration=True,
+                    ignore_default_attributes=True,
+                ),
+                writer=LxmlEventWriter,
+            )
             with open(filepath, 'w', encoding='utf-8') as f:
                 logger.info(f'>> Flushing {filepath}')
                 arxml_content = serializer.render(arxml_obj, ns_map={None: self.xml_namespace})
@@ -246,7 +260,7 @@ class IOArxml:
                             dict_uuid[i.uuid] = ref + (i.short_name.value,)
                         cls.__scan_arobj_ref(i, ref + (i.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
                     else:
-                        if hasattr(i, 'value') and hasattr(i, 'dest') and type(i).__name__.endswith('Ref'):  # ref实例
+                        if hasattr(i, 'value') and hasattr(i, 'dest') and type(i).__name__.upper().endswith('REF'):  # ref实例
                             if (_ref := cls.ref_str2ref(i.value)) not in dict_search_obj_use_ref:
                                 dict_search_obj_use_ref[_ref] = [(i, ref)]
                             else:
@@ -258,7 +272,7 @@ class IOArxml:
                     dict_uuid[v.uuid] = ref + (v.short_name.value,)
                 cls.__scan_arobj_ref(v, ref + (v.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
             else:
-                if hasattr(v, 'value') and hasattr(v, 'dest') and type(v).__name__.endswith('Ref'):  # ref实例
+                if hasattr(v, 'value') and hasattr(v, 'dest') and type(v).__name__.upper().endswith('REF'):  # ref实例
                     if (_ref := cls.ref_str2ref(v.value)) not in dict_search_obj_use_ref:
                         dict_search_obj_use_ref[_ref] = [(v, ref)]
                     else:
