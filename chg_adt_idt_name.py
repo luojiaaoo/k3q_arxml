@@ -38,7 +38,7 @@ io_arxml = IOArxml(filepaths=args.arxml_files)
 
 # 修改adt
 for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationPrimitiveDataType).items():
-    for i in arxml_obj_interface:
+    for i, _ in arxml_obj_interface:
         i.short_name.value = f'ADT_{i.short_name.value}'
     for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
         i = io_arxml.ref_str2ref(ref_obj.value)
@@ -46,7 +46,7 @@ for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationP
 
 
 for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationArrayDataType).items():
-    for i in arxml_obj_interface:
+    for i, _ in arxml_obj_interface:
         i.short_name.value = f'ADT_{i.short_name.value}'
     for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
         i = io_arxml.ref_str2ref(ref_obj.value)
@@ -54,7 +54,7 @@ for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationA
 
 
 for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationRecordDataType).items():
-    for i in arxml_obj_interface:
+    for i, _ in arxml_obj_interface:
         i.short_name.value = f'ADT_{i.short_name.value}'
     for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
         i = io_arxml.ref_str2ref(ref_obj.value)
@@ -63,7 +63,7 @@ for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ApplicationR
 
 # 修改idt
 for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.ImplementationDataType).items():
-    for i in arxml_obj_interface:
+    for i, _ in arxml_obj_interface:
         i.short_name.value = f'IDT_{i.short_name.value}'
     for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
         i = io_arxml.ref_str2ref(ref_obj.value)
