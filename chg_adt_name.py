@@ -22,6 +22,7 @@ logger.level = logging.DEBUG
 
 suffix = args.suffix
 soa_interface_name = args.soa_interface_name
+has_change_adt_prefix = []
 
 io_arxml = IOArxml(filepaths=args.arxml_files)
 for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.SenderReceiverInterface).items():
@@ -31,7 +32,11 @@ for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.SenderReceiv
         for variable_data_prototype in arxml_obj_interface.default.data_elements.variable_data_prototype:
             # 遍历多个VARIABLE-DATA-PROTOTYPE，每一个VARIABLE-DATA-PROTOTYPE对应一个adt
             ref_obj = variable_data_prototype.type_tref
+            # 没有修改过或者本次已经修改过的，都跳过去
             if not ref_obj.value.endswith(suffix):
+                continue
+            if ref_obj.value.rsplit(suffix, 1)[0] in has_change_adt_prefix:
+                logger.debug(f'{ref_obj.value} has been changed before')
                 continue
             logger.debug(f'restore {ref_obj.value} to {ref_obj.value[:-len(suffix)]}')
             ref_need_change = io_arxml.ref_str2ref(ref_obj.value)
@@ -44,6 +49,8 @@ for ref_interface, arxml_obj_interface in io_arxml.ar(clazz=autosar.SenderReceiv
         for variable_data_prototype in arxml_obj_interface.default.data_elements.variable_data_prototype:
             # 遍历多个VARIABLE-DATA-PROTOTYPE，每一个VARIABLE-DATA-PROTOTYPE对应一个adt
             ref_obj = variable_data_prototype.type_tref
+            # 保存修改记录
+            has_change_adt_prefix.append(ref_obj.value.rsplit(suffix, 1)[0])
             if ref_obj.value.endswith(suffix):  # 已经修改过了，跳过
                 logger.debug(f'{ref_obj.value} has been changed')
                 continue
