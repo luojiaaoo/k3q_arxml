@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# 按需生成的当前 AUTOSAR 绑定与生成过程临时目录
+/k3q_arxml/autosar.py
+/k3q_arxml/.codegen-*/

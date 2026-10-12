@@ -11,75 +11,124 @@
 
 ## 介绍
 
-极简的arxml编辑库，纯python实现
+极简的 ARXML 编辑库，使用 Python、xsdata 和 lxml 实现。
 
-## 用法
+代码分三层：`ArxmlObject` 包装一个节点，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。
 
-```python
-# 导入pprint模块的pp函数，用于美化打印对象
-# Import the pp function from pprint module for pretty-printing objects
-from pprint import pp  
+## 安装与生成类型
 
-# 导入k3q_arxml库
-# Import k3q_arxml library
-import k3q_arxml
+项目使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理环境。在仓库根目录执行：
 
-# 创建一个IOArxml实例，加载指定的ARXML文件（test/model_merge.arxml）
-# Create an IOArxml instance and load specified ARXML file (test/model_merge.arxml)
-io_arxml = k3q_arxml.IOArxml(filepaths=['test/model_merge.arxml'])
-
-# 将ARXML文件的内容打印到控制台或保存到文件（model_merge.txt）
-# Print ARXML content to console or save to file (model_merge.txt)
-io_arxml.print(print_filepath='model_merge.txt')
-
-# 刷新引用缓存数据。如果修改了数据并影响了引用关系，需要调用此方法更新缓存
-# Refresh reference cache. Call this after modifications that affect references
-io_arxml.scan_ref()
-
-# 在路径('Implementations', 'HWIO')下添加或修改resource_consumption属性
-# Add/modify resource_consumption under path ('Implementations', 'HWIO')
-io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = k3q_arxml.autosar.ResourceConsumption(
-    short_name=k3q_arxml.autosar.Identifier(value='resourceConsumption'))
-
-# 两种方式删除resource_consumption属性：1.使用del语句 2.将其设置为None
-# Two ways to delete resource_consumption: 1. del statement 2. Set to None
-del io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption
-io_arxml.ref(('Implementations', 'HWIO')).default.resource_consumption = None
-
-# 根据引用路径('Implementations', 'HWIO')查询对应的ARXML实例
-# Query ARXML instance by reference path ('Implementations', 'HWIO')
-io_arxml.ref(('Implementations', 'HWIO'))
-
-# 查询哪些ARXML实例引用了路径('Implementations', 'HWIO')
-# Find which instances reference path ('Implementations', 'HWIO')
-io_arxml.ref_to_ref(('Implementations', 'HWIO'))
-
-# 查询所有ResourceConsumption类型的实例
-# Find all instances of ResourceConsumption type
-io_arxml.ar(clazz=k3q_arxml.autosar.ResourceConsumption)
-
-# 在路径('Implementations',)下查询ResourceConsumption类型的实例
-# Find ResourceConsumption instances under path ('Implementations',)
-io_arxml.ar(clazz=k3q_arxml.autosar.ResourceConsumption, ref_prefix=('Implementations',))
-
-# 打印UUID与引用路径的映射关系，便于通过UUID快速定位引用路径
-# Print UUID-to-reference mapping for debugging reference paths
-io_arxml.scan_ref(debug_uuid=True)
-
-# 将AUTOSAR版本从默认的autosar_00048切换到autosar_00052
-# Switch AUTOSAR version from default autosar_00048 to autosar_00052
-from k3q_arxml import change_autosar_version
-change_autosar_version('autosar_4_2_2')
-from k3q_arxml import IOArxml, autosar # 此时导入就是新版本的autosar
-
-# 将修改后的数据写回原始ARXML文件
-# Write modified data back to original ARXML file
-io_arxml.flush_to_file()
+```console
+uv sync --locked
+uv run python -m k3q_arxml versions
+uv run python -m k3q_arxml generate 4.2.2
 ```
 
-> *技巧*
-> 1. 手动添加完成后的arxml和原始arxml，都通过io_arxml.print函数打印在文件里
-> 2. 通过对比软件对比源arxml和打印的arxml，找出需要修改的arxml内容
-> 3. 该内容就是对象的定义代码，可以复制出来粘贴到代码里
+仓库保留所有版本的 XSD，位于 `k3q_arxml/schemas/`，不再预生成、提交所有版本的 Python 绑定。生成命令使用 Click 实现，可在 Windows、Linux 和 macOS 上使用。
 
+- 可用版本从 `schemas/autosar_*` 目录自动查找，以 `versions` 命令输出为准。新增版本时，放入对应的目录和主 XSD 即可，例如 `autosar_00053/AUTOSAR_00053.xsd`，无需修改版本列表。
+- 每次只生成指定版本，输出为真实的 `k3q_arxml/autosar.py`，支持 IDE 补全和静态类型检查。
+- 当前绑定未生成时，CLI 的帮助、版本列表和生成命令仍可使用；创建 `IOArxml` 会提示先生成。
+- 生成成功后替换当前绑定；生成失败保留原有绑定。生成文件已加入 Git 忽略规则。
+- 更换版本只需重新运行生成命令，例如 `uv run python -m k3q_arxml generate 00048`。随后使用新的 Python 进程；IDE 如仍显示旧类型，刷新语言服务。
+- 选择与输入 ARXML 的 schema 相匹配的版本。当前只使用一个生成版本，不再提供 `change_autosar_version()`、旧版模块入口或懒加载代理。
+- 导入文件时先核对 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定版本；版本不一致或缺少声明时抛出 `ValueError`，不会自动切换版本。
 
+Python 开发版本固定为 3.11，运行依赖使用 xsdata 26.2、lxml 5.4.0 和 Click 8.2.1。Ruff 0.13.3 与 xsdata 的生成配置兼容。暂不配置包构建，从仓库根目录执行命令。
+
+## 使用
+
+先生成与仓库样例匹配的 4.2.2 绑定，再运行以下代码：
+
+```python
+from k3q_arxml import IOArxml, autosar
+
+io_arxml = IOArxml(
+    filepaths=['test/ThrottlePositionControlComposition.arxml'],
+)
+
+# 找出文件中所有的基础数据类型（XML 中的 SW-BASE-TYPE 节点）。
+base_types = io_arxml.ar(clazz=autosar.SwBaseType)
+for result in base_types:
+    base_type = result.xml_obj  # 取出这个节点对应的 ARXML 对象。
+    name = base_type.short_name.value  # 读取它的 SHORT-NAME 内容。
+    print(result.ref, name)  # 打印这个数据类型的路径和名称。
+
+# 按路径查找 BaseTypes 包；没有找到时返回 None。
+package = io_arxml.ref(('AUTOSAR_Platform', 'BaseTypes'))
+if package is not None:
+    print(package.is_ar_package)  # 判断找到的对象是不是 AR-PACKAGE。
+
+# 查找文件中哪些位置使用了 uint8 这个数据类型。
+references = io_arxml.ref_to_ref(('AUTOSAR_Platform', 'BaseTypes', 'uint8'))
+
+# 如果修改了名称、引用或对象结构，重新扫描后再继续查询。
+# io_arxml.scan_ref()
+
+# 把读取到的全部内容输出到 model.txt，方便查看。
+io_arxml.print(print_filepath='model.txt')
+
+# 把修改保存回原来的 ARXML 文件。确认已备份后再取消下面的注释。
+# io_arxml.flush_to_file()
+```
+
+上面的查询过程分为几步：
+
+1. `autosar.SwBaseType` 表示要查找的节点类型，对应 XML 中的 `<SW-BASE-TYPE>`。
+2. `ar()` 返回对象列表，每一项只对应一个文件里的一个节点。
+3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是路径，`result.file` 是所属文件。
+4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
+
+加载多个文件时，同一路径的节点分别保留。`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename='文件路径')` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
+
+只处理一个文件时，可以直接使用文件层：
+
+```python
+from k3q_arxml import ArxmlFile, autosar
+
+file = ArxmlFile('test/ThrottlePositionControlComposition.arxml')
+for result in file.ar(autosar.SwBaseType):
+    print(result.ref, result.xml_obj.short_name.value)
+
+# 修改名称或引用后调用 file.scan_ref() 更新索引，调用 file.save() 保存。
+```
+
+扫描仍使用原来的 `__scan_arobj_ref` 逻辑，只移到了 `arxml_file.py`。修改节点、引用或对象结构后仍需手动重新扫描；重命名仍需自行同步定义与引用。
+
+如果要新建一个名称字段，可以这样写：
+
+```python
+# 创建一个值为 newName 的名称字段，后续可以赋给对象的 short_name。
+identifier = autosar.Identifier(value='newName')
+print(identifier.value)  # 输出 newName。
+```
+
+这里只创建了一个 Python 对象，还没有将它添加到 ARXML 或保存到文件。
+
+## 编辑脚本
+
+两个脚本使用当前已生成的绑定，无需传入或切换版本：
+
+```console
+uv run python chg_adt_name.py --help
+uv run python chg_adt_idt_name.py --help
+```
+
+实际运行会原地修改输入文件。`chg_adt_idt_name.py` 会先全局移除文本中的 `ADT_` / `IDT_`，再为目标数据类型及引用添加前缀，使用前应备份文件。
+
+根目录 `test.py`、`test3.py` 是历史手工示例，依赖未提交的 `test/model_merge.arxml`，不作为自动化测试入口。
+
+## 开发与验证
+
+```console
+uv run python -m k3q_arxml generate 4.2.2
+uv run python -m unittest discover -s tests -v
+uv run ruff check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
+uv run ruff format --check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
+uv lock --check
+```
+
+CLI 测试在临时目录中生成小型 schema，覆盖版本替换、失败保留和含空格及中文的路径。ARXML 测试使用样例的临时副本，验证解析回写、多文件路径和重命名引用；未生成 4.2.2 绑定时会跳过这些样例测试。
+
+依赖和 Ruff 配置统一维护在 `pyproject.toml`，完整依赖树锁定在 `uv.lock`。使用 `uv add` / `uv remove` 管理依赖，开发依赖添加 `--dev`。运行依赖已包含生成 CLI；`uv sync --locked --no-dev` 也可使用生成命令。不要手动编辑生成的 `autosar.py` 或将其提交。
