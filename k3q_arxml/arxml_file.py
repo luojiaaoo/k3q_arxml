@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Iterable
 from enum import Enum
@@ -17,16 +16,10 @@ from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .arxml_object import ArxmlObject, Ref, T
+from .log import logger
 
 if TYPE_CHECKING:
     from .autosar import Autosar
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)10s | %(name)s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
-logger = logging.getLogger(__name__)
 
 Filename: TypeAlias = str | Path
 Uuid: TypeAlias = str
@@ -80,7 +73,7 @@ class ArxmlFile:
         return re.split(r'[/\\]', schema)[-1]
 
     def parse(self) -> Autosar:
-        logger.info('>> parsing %s', self.filepath)
+        logger.info('>> parsing {}', self.filepath)
         schema_filename = self.get_schema_filename_from_file()
         expected_filename = f'AUTOSAR_{self.schema_version.replace(".", "-")}.xsd'
         if schema_filename != expected_filename:
@@ -91,7 +84,7 @@ class ArxmlFile:
         self.indent = self.get_indent_from_file()
         self.root = parser.parse(self.filepath, self.clazz, ns_map=ns_map)
         if (default_ns := ns_map[None]) != self.xml_namespace:
-            logger.error('%s ns: %s', self.filepath, default_ns)
+            logger.error('{} ns: {}', self.filepath, default_ns)
         return self.root
 
     def scan_ref(self) -> None:

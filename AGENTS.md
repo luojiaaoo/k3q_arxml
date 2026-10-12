@@ -9,6 +9,7 @@
 - 使用 uv 管理项目；`.python-version` 指定开发使用 Python 3.11，最低运行版本为 3.11。
 - `pyproject.toml` 声明运行及开发依赖，`uv.lock` 锁定完整依赖树。
 - xsdata 及 CLI 使用 26.2，Click 使用 8.2.1，Ruff 使用兼容生成配置的 0.13.3，lxml 使用 5.4.0。
+- 日志使用 Loguru 0.7.3，配置统一放在 `k3q_arxml/log.py`；其他模块只导入 logger，入口脚本通过 `configure_logging()` 设置级别。
 - 暂不添加构建后端或打包配置。从仓库根目录运行命令。
 - 保留所有 XSD，按需生成一个当前版本的真实 `autosar.py`，不预生成全版本绑定，不使用懒加载代理或全局版本切换函数。
 
@@ -20,6 +21,7 @@
 | `k3q_arxml/arxml_file.py` | `ArxmlFile`，负责单文件解析、原有引用扫描和回写 |
 | `k3q_arxml/k3q_arxml.py` | `IOArxml`，负责多文件管理和查询汇总 |
 | `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlObject` 和 logger |
+| `k3q_arxml/log.py` | Loguru 的输出、格式和日志级别配置，默认 INFO |
 | `k3q_arxml/__main__.py`、`cli.py` | `python -m k3q_arxml` 的 Click 命令行入口 |
 | `k3q_arxml/schemas.py` | 扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
 | `k3q_arxml/schemas/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |

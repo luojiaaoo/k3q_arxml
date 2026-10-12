@@ -5,7 +5,6 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from .arxml_file import ArxmlFile, Filename
-from .arxml_file import logger as logger
 from .arxml_object import ArxmlObject, Ref, T
 
 if TYPE_CHECKING:

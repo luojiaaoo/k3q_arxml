@@ -1,5 +1,4 @@
 import argparse
-import logging
 
 
 def main() -> None:
@@ -14,8 +13,9 @@ def main() -> None:
     args = parser.parse_args()
 
     from k3q_arxml import IOArxml, autosar, logger
+    from k3q_arxml.log import configure_logging
 
-    logger.level = logging.DEBUG
+    configure_logging('DEBUG')
 
     suffix = args.suffix
     soa_interface_name = args.soa_interface_name

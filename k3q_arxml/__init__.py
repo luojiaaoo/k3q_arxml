@@ -2,6 +2,7 @@
 
 from .arxml_file import ArxmlFile
 from .arxml_object import ArxmlObject
-from .k3q_arxml import IOArxml, logger
+from .k3q_arxml import IOArxml
+from .log import logger
 
 __all__ = ['ArxmlFile', 'ArxmlObject', 'IOArxml', 'logger']

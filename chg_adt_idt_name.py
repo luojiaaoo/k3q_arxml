@@ -1,5 +1,4 @@
 import argparse
-import logging
 from pathlib import Path
 
 
@@ -12,7 +11,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    from k3q_arxml import IOArxml, autosar, logger
+    from k3q_arxml import IOArxml, autosar
+    from k3q_arxml.log import configure_logging
 
     for filepath in args.arxml_files:
         path = Path(filepath)
@@ -21,7 +21,7 @@ def main() -> None:
         content = content.replace('IDT_', '')
         path.write_text(content, encoding='utf-8')
 
-    logger.level = logging.DEBUG
+    configure_logging('DEBUG')
 
     io_arxml = IOArxml(filepaths=args.arxml_files)
 

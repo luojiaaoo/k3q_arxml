@@ -1,4 +1,3 @@
-import logging
 import unittest
 from pathlib import Path
 from shutil import copy2
@@ -26,10 +25,9 @@ class ArxmlTests(unittest.TestCase):
         self.path = str(Path(self.temporary.name) / 'sample.arxml')
         fixture = Path(__file__).resolve().parents[1] / 'test' / 'ThrottlePositionControlComposition.arxml'
         copy2(fixture, self.path)
-        self.logger = logging.getLogger('k3q_arxml.arxml_file')
-        self.previous_level = self.logger.level
-        self.logger.setLevel(logging.ERROR)
-        self.addCleanup(self.logger.setLevel, self.previous_level)
+        logger_patch = patch('k3q_arxml.arxml_file.logger')
+        logger_patch.start()
+        self.addCleanup(logger_patch.stop)
 
     def test_native_module_and_round_trip_preserve_objects_and_references(self):
         self.assertIsInstance(self.autosar, ModuleType)

@@ -37,6 +37,8 @@ uv run python -m k3q_arxml generate 4.2.2
 
 Python 开发版本固定为 3.11，运行依赖使用 xsdata 26.2、lxml 5.4.0 和 Click 8.2.1。Ruff 0.13.3 与 xsdata 的生成配置兼容。暂不配置包构建，从仓库根目录执行命令。
 
+日志使用 Loguru，配置集中在 `k3q_arxml/log.py`，默认输出 INFO 及以上日志。需要调试输出时调用 `from k3q_arxml.log import configure_logging`，再执行 `configure_logging('DEBUG')`。
+
 ## 使用
 
 先生成与仓库样例匹配的 4.2.2 绑定，再运行以下代码：
