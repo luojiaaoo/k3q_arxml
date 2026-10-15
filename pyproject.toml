@@ -9,6 +9,7 @@ dependencies = [
     "click==8.2.1",
     "loguru==0.7.3",
     "lxml==5.4.0",
+    "pydantic==2.14.1",
     "xsdata[cli]==26.2",
 ]
 

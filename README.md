@@ -64,6 +64,9 @@ if package is not None:
 
 # 查找文件中哪些位置使用了 uint8 这个数据类型。
 references = io_arxml.ref_to_ref(('AUTOSAR_Platform', 'BaseTypes', 'uint8'))
+for reference in references:
+    # xml_obj.value 是目标路径，owner_ref 和 filename 标明引用出现的位置。
+    print(reference.xml_obj.value, reference.owner_ref, reference.filename)
 
 # 如果修改了名称、引用或对象结构，重新扫描后再继续查询。
 # io_arxml.scan_ref()
@@ -89,7 +92,7 @@ io_arxml.print(print_filepath='model.txt')
 ```python
 from k3q_arxml import ArxmlFile, autosar
 
-file = ArxmlFile('test/ThrottlePositionControlComposition.arxml')
+file = ArxmlFile().parse_file('test/ThrottlePositionControlComposition.arxml')
 for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
 

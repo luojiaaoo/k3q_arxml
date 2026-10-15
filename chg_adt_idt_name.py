@@ -30,7 +30,8 @@ def main() -> None:
         for obj in io_arxml.find(ref_interface):
             i = obj.xml_obj
             i.short_name.value = f'ADT_{i.short_name.value}'
-        for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
+        for reference in io_arxml.ref_to_ref(ref_interface):
+            ref_obj = reference.xml_obj
             i = io_arxml.ref_str2ref(ref_obj.value)
             ref_obj.value = io_arxml.ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
@@ -38,7 +39,8 @@ def main() -> None:
         for obj in io_arxml.find(ref_interface):
             i = obj.xml_obj
             i.short_name.value = f'ADT_{i.short_name.value}'
-        for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
+        for reference in io_arxml.ref_to_ref(ref_interface):
+            ref_obj = reference.xml_obj
             i = io_arxml.ref_str2ref(ref_obj.value)
             ref_obj.value = io_arxml.ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
@@ -46,7 +48,8 @@ def main() -> None:
         for obj in io_arxml.find(ref_interface):
             i = obj.xml_obj
             i.short_name.value = f'ADT_{i.short_name.value}'
-        for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
+        for reference in io_arxml.ref_to_ref(ref_interface):
+            ref_obj = reference.xml_obj
             i = io_arxml.ref_str2ref(ref_obj.value)
             ref_obj.value = io_arxml.ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
@@ -55,7 +58,8 @@ def main() -> None:
         for obj in io_arxml.find(ref_interface):
             i = obj.xml_obj
             i.short_name.value = f'IDT_{i.short_name.value}'
-        for ref_obj, ref, filename in io_arxml.ref_to_ref(ref_interface):
+        for reference in io_arxml.ref_to_ref(ref_interface):
+            ref_obj = reference.xml_obj
             i = io_arxml.ref_str2ref(ref_obj.value)
             ref_obj.value = io_arxml.ref2ref_str([*i[:-1], f'IDT_{i[-1]}'])
 

@@ -1,11 +1,14 @@
 import unittest
+from dataclasses import is_dataclass
 from pathlib import Path
 from shutil import copy2
 from tempfile import TemporaryDirectory
 from types import ModuleType
 from unittest.mock import patch
 
-from k3q_arxml import ArxmlFile, IOArxml
+from lxml import etree
+
+from k3q_arxml import ArxmlFile, ArxmlReference, IOArxml
 
 
 class ArxmlTests(unittest.TestCase):
@@ -33,17 +36,31 @@ class ArxmlTests(unittest.TestCase):
         self.assertIsInstance(self.autosar, ModuleType)
         original = IOArxml([self.path])
         paths = set(original.objects)
-        references = {ref: [(obj.value, owner) for obj, owner, _ in rows] for ref, rows in original.references.items()}
+        references = {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in original.references.items()}
         self.assertTrue(paths)
         self.assertTrue(references)
         file = original.get_file(self.path)
-        self.assertEqual(file.schema_version, '4.2.2')
+        self.assertEqual(file.parse_schema_version, '4.2.2')
+        self.assertEqual(file.header.file_schema_version, '4.2.2')
         original.flush_to_file()
         reloaded = IOArxml([self.path])
         self.assertEqual(set(reloaded.objects), paths)
-        self.assertEqual({ref: [(obj.value, owner) for obj, owner, _ in rows] for ref, rows in reloaded.references.items()}, references)
+        self.assertEqual({ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in reloaded.references.items()}, references)
         self.assertEqual(reloaded.get_file(self.path).root, file.root)
-        self.assertTrue(file.xml_schema_location.endswith('AUTOSAR_4-2-2.xsd'))
+        self.assertTrue(file.header.xml_schema_location.endswith('AUTOSAR_4-2-2.xsd'))
+
+    def test_swc_arxml_can_be_parsed(self):
+        fixture = Path(__file__).resolve().parents[1] / 'test' / 'SWC.arxml'
+        swc_path = Path(self.temporary.name) / 'SWC.arxml'
+        copy2(fixture, swc_path)
+
+        file = ArxmlFile().parse_file(swc_path)
+
+        self.assertEqual(file.header.file_schema_version, '4.2.2')
+        self.assertTrue(file.objects)
+        self.assertTrue(file.ar(self.autosar.ArPackage))
+        self.assertTrue(file.format.leading_comments)
+        self.assertIn('Auto generated XML Component Description', file.format.leading_comments)
 
     def test_shared_paths_keep_separate_objects_and_file_identity(self):
         other_path = str(Path(self.temporary.name) / 'other.arxml')
@@ -63,26 +80,58 @@ class ArxmlTests(unittest.TestCase):
         self.assertIsNone(document.ref(('Missing',)))
         self.assertEqual(document.find(('Missing',)), [])
 
+    def test_reference_results_preserve_nodes_owners_and_file_identity(self):
+        other_path = str(Path(self.temporary.name) / 'other.arxml')
+        copy2(self.path, other_path)
+        document = IOArxml([self.path, other_path])
+        ref = next(iter(document.get_file(self.path).references))
+        results = document.ref_to_ref(ref)
+        expected_count = 0
+
+        for file in document.files.values():
+            cached = file.references[ref]
+            file_results = [result for result in results if result.filename == file.filepath]
+            self.assertEqual(len(file_results), len(cached))
+            expected_count += len(cached)
+            for result, (xml_obj, owner_ref) in zip(file_results, cached):
+                self.assertIsInstance(result, ArxmlReference)
+                self.assertTrue(is_dataclass(result))
+                self.assertIs(result.xml_obj, xml_obj)
+                self.assertEqual(result.owner_ref, owner_ref)
+                self.assertEqual(result.filename, file.filepath)
+
+        self.assertEqual(len(results), expected_count)
+        self.assertEqual({result.filename for result in results}, {self.path, other_path})
+        self.assertEqual(document.references[ref], results)
+        self.assertEqual(document.ref_to_ref(('Missing',)), [])
+
     def test_rename_updates_definition_and_references_after_rescan(self):
-        document = IOArxml([self.path])
-        ref = next(ref for ref, rows in document.references.items() if rows and document.ref(ref) is not None)
+        other_path = str(Path(self.temporary.name) / 'references.arxml')
+        tree = etree.parse(self.path)
+        base_types = tree.xpath('//ar:AR-PACKAGE[ar:SHORT-NAME="BaseTypes"]', namespaces={'ar': 'http://autosar.org/schema/r4.0'})[0]
+        base_types.getparent().remove(base_types)
+        tree.write(other_path, encoding='utf-8', xml_declaration=True)
+        document = IOArxml([self.path, other_path])
+        ref = ('AUTOSAR_Platform', 'BaseTypes', 'float32')
+        self.assertIsNone(document.get_file(other_path).ref(ref))
+        self.assertEqual({row.filename for row in document.ref_to_ref(ref)}, {self.path, other_path})
         target = document.ref(ref)
         assert target is not None
         updated_ref = (*ref[:-1], ref[-1] + '_renamed')
         target.xml_obj.short_name.value = updated_ref[-1]
-        for obj, _, _ in document.ref_to_ref(ref):
-            obj.value = document.ref2ref_str(updated_ref)
+        for reference in document.ref_to_ref(ref):
+            reference.xml_obj.value = document.ref2ref_str(updated_ref)
         document.scan_ref()
         self.assertIsNone(document.ref(ref))
         self.assertIsNotNone(document.ref(updated_ref))
         self.assertTrue(document.ref_to_ref(updated_ref))
         document.flush_to_file()
-        reloaded = IOArxml([self.path])
+        reloaded = IOArxml([self.path, other_path])
         self.assertIsNotNone(reloaded.ref(updated_ref))
-        self.assertTrue(reloaded.ref_to_ref(updated_ref))
+        self.assertEqual({row.filename for row in reloaded.ref_to_ref(updated_ref)}, {self.path, other_path})
 
     def test_file_can_be_used_independently(self):
-        file = ArxmlFile(self.path)
+        file = ArxmlFile().parse_file(self.path)
         types = file.ar(self.autosar.SwBaseType)
         self.assertTrue(types)
         obj = types[0]
@@ -95,18 +144,71 @@ class ArxmlTests(unittest.TestCase):
         self.assertIsNone(file.ref(obj.ref))
         self.assertIs(file.ref(new_ref).xml_obj, obj.xml_obj)
         file.save()
-        self.assertIsNotNone(ArxmlFile(self.path).ref(new_ref))
+        self.assertIsNotNone(ArxmlFile().parse_file(self.path).ref(new_ref))
 
-    def test_schema_version_mismatch_is_rejected_before_object_parsing(self):
+    def test_parse_autosar_can_create_and_save_a_file(self):
+        source = ArxmlFile().parse_file(self.path)
+        path = Path(self.temporary.name) / 'created.arxml'
+        comments = '<!-- 新建文件 -->\n<!-- 第二条注释 -->'
+
+        file = ArxmlFile().parse_autosar(path, source.root, indent='\t', leading_comments=comments)
+        self.assertEqual(file.format.leading_comments, comments)
+        self.assertFalse(path.exists())
+        file.save()
+
+        reloaded = ArxmlFile().parse_file(path)
+        self.assertEqual(reloaded.root, source.root)
+        self.assertEqual(set(reloaded.objects), set(source.objects))
+        self.assertEqual(reloaded.format.indent, '\t')
+        self.assertEqual(reloaded.format.leading_comments, comments)
+        self.assertEqual(reloaded.header.file_schema_version, self.autosar.SCHEMA_VERSION)
+
+    def test_create_arxml_registers_and_saves_a_new_file(self):
+        source = ArxmlFile().parse_file(self.path)
+        document = IOArxml([])
+        path = Path(self.temporary.name) / 'created.arxml'
+        comments = '<!-- 通过 IOArxml 创建 -->'
+
+        file = document.create_arxml(path, source.root, leading_comments=comments)
+        self.assertIs(document.get_file(path), file)
+        self.assertFalse(path.exists())
+        document.flush_to_file()
+
+        reloaded = ArxmlFile().parse_file(path)
+        self.assertEqual(reloaded.format.leading_comments, comments)
+        self.assertEqual(reloaded.root, source.root)
+        self.assertEqual(set(reloaded.objects), set(source.objects))
+
+    def test_round_trip_preserves_leading_comment_order(self):
+        path = Path(self.path)
+        comments = '<!-- first -->\n<!-- 第二条\n多行注释 -->\n<!-- third -->'
+        path.write_text(path.read_text(encoding='utf-8').replace('<AUTOSAR', comments + '\n<AUTOSAR', 1), encoding='utf-8')
+
+        file = ArxmlFile().parse_file(path)
+        self.assertEqual(file.format.leading_comments, comments)
+        original_root = file.root
+        for _ in range(2):
+            file.save()
+            file = ArxmlFile().parse_file(path)
+            self.assertEqual(file.format.leading_comments, comments)
+            self.assertEqual(file.root, original_root)
+
+    def test_schema_version_mismatch_is_warned_and_saved_declaration_is_preserved(self):
         path = Path(self.path)
         path.write_text(path.read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00048.xsd'), encoding='utf-8')
-        with patch('k3q_arxml.arxml_file.XmlParser.parse') as parse:
-            with self.assertRaises(ValueError) as error:
-                ArxmlFile(self.path)
-        parse.assert_not_called()
-        self.assertIn(self.path, str(error.exception))
-        self.assertIn('AUTOSAR_00048.xsd', str(error.exception))
-        self.assertIn('schema_version=4.2.2', str(error.exception))
+        with patch('k3q_arxml.arxml_file.logger.warning') as warning:
+            file = ArxmlFile().parse_file(self.path)
+        warning.assert_called_once()
+        self.assertEqual(file.parse_schema_version, '4.2.2')
+        self.assertEqual(file.header.file_schema_version, '00048')
+        schema_location = file.header.xml_schema_location
+        file.save()
+        root = etree.parse(str(path)).getroot()
+        self.assertEqual(root.get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation'), schema_location)
+        self.assertEqual(etree.QName(root).namespace, file.header.xml_namespace)
+        reloaded = ArxmlFile().parse_file(path)
+        self.assertEqual(reloaded.header.file_schema_version, '00048')
+        self.assertEqual(reloaded.root, file.root)
 
     def test_schema_check_selects_autosar_namespace_and_accepts_schema_paths(self):
         for schema in ('AUTOSAR_4-2-2.xsd', 'https://example.test/schemas/AUTOSAR_4-2-2.xsd', r'C:\schemas\AUTOSAR_4-2-2.xsd'):
@@ -116,7 +218,9 @@ class ArxmlTests(unittest.TestCase):
                     f'meta:schemaLocation="urn:other other.xsd http://autosar.org/schema/r4.0 {schema}"><AR-PACKAGES/></AUTOSAR>',
                     encoding='utf-8',
                 )
-                self.assertEqual(ArxmlFile(self.path).schema_version, '4.2.2')
+                file = ArxmlFile().parse_file(self.path)
+                self.assertEqual(file.parse_schema_version, '4.2.2')
+                self.assertEqual(file.header.file_schema_version, '4.2.2')
 
     def test_missing_autosar_schema_declaration_is_rejected(self):
         for declaration in ('', 'xsi:schemaLocation="urn:other other.xsd"'):
@@ -126,4 +230,4 @@ class ArxmlTests(unittest.TestCase):
                     encoding='utf-8',
                 )
                 with self.assertRaisesRegex(ValueError, '无法核对 schema_version'):
-                    ArxmlFile(self.path)
+                    ArxmlFile().parse_file(self.path)

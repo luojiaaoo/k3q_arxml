@@ -39,8 +39,8 @@ def main() -> None:
                 # 修改ADT名字
                 io_arxml.ref(ref_need_change).xml_obj.short_name.value = io_arxml.ref(ref_need_change).xml_obj.short_name.value[: -len(suffix)]
                 # 修改用到这个ADT的引用
-                for ref_ref_obj, _, _ in io_arxml.ref_to_ref(ref_need_change):
-                    ref_ref_obj.value = ref_ref_obj.value[: -len(suffix)]
+                for reference in io_arxml.ref_to_ref(ref_need_change):
+                    reference.xml_obj.value = reference.xml_obj.value[: -len(suffix)]
         else:
             for variable_data_prototype in arxml_obj_interface.xml_obj.data_elements.variable_data_prototype:
                 # 遍历多个VARIABLE-DATA-PROTOTYPE，每一个VARIABLE-DATA-PROTOTYPE对应一个adt
@@ -55,8 +55,8 @@ def main() -> None:
                 # 修改ADT名字
                 io_arxml.ref(ref_need_change).xml_obj.short_name.value += suffix
                 # 修改用到这个ADT的引用
-                for ref_ref_obj, _, _ in io_arxml.ref_to_ref(ref_need_change):
-                    ref_ref_obj.value += suffix
+                for reference in io_arxml.ref_to_ref(ref_need_change):
+                    reference.xml_obj.value += suffix
 
     io_arxml.flush_to_file()
 
