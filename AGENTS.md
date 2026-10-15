@@ -29,7 +29,7 @@
 | `chg_adt_idt_name.py` | 全局移除文本中的 ADT / IDT 前缀，再为目标数据类型及引用添加前缀 |
 | `test.py`、`test3.py` | 历史手工示例，依赖缺失的 `test/model_merge.arxml`，不是自动化测试入口 |
 | `test/ThrottlePositionControlComposition.arxml` | 4.2.2 schema 的已提交样例 |
-| `tests/` | 标准库 unittest 回归测试，使用临时文件 |
+| `tests/` | pytest 回归测试，使用 fixture、参数化用例和临时文件 |
 | `docs/` | DaVinci 与 AUTOSAR 兼容性参考 PDF |
 | `README.md` | 环境、生成命令及使用说明 |
 | `pyproject.toml` | 项目元数据、依赖及 Ruff 配置（行宽 180、单引号） |
@@ -89,7 +89,7 @@ uv run python -m k3q_arxml generate 4.2.2
 
 ```console
 uv run python -m k3q_arxml generate 4.2.2
-uv run python -m unittest discover -s tests -v
+uv run pytest -v
 uv run ruff check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
 uv run ruff format --check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
 uv lock --check

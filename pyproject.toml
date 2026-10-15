@@ -15,11 +15,16 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest==9.1.1",
     "ruff==0.13.3",
 ]
 
 [project.urls]
 Repository = "https://github.com/luojiaaoo/k3q_arxml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py311"
