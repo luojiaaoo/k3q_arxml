@@ -62,6 +62,33 @@ class ArxmlTests(unittest.TestCase):
         self.assertTrue(file.format.leading_comments)
         self.assertIn('Auto generated XML Component Description', file.format.leading_comments)
 
+    def test_ref_inner_subclass_is_indexed_and_can_be_edited_and_saved(self):
+        autosar = self.autosar
+        source = autosar.IPduMapping.SourceIPduRef(value='/Network/Trigger', dest=autosar.PduTriggeringSubtypesEnum.PDU_TRIGGERING)
+        target = autosar.TargetIPduRef.TargetIPduRefInner(value='/Network/Trigger', dest=autosar.PduTriggeringSubtypesEnum.PDU_TRIGGERING)
+        mapping = autosar.IPduMapping(source_i_pdu_ref=source, target_i_pdu=autosar.TargetIPduRef(target_i_pdu_ref=target))
+        gateway = autosar.Gateway(short_name=autosar.Identifier(value='Gateway'), i_pdu_mappings=autosar.Gateway.IPduMappings(i_pdu_mapping=[mapping]))
+        package = autosar.ArPackage(short_name=autosar.Identifier(value='Package'), elements=autosar.ArPackage.Elements(choice=[gateway]))
+        root = autosar.Autosar(ar_packages=autosar.Autosar.ArPackages(ar_package=[package]))
+
+        file = ArxmlFile().parse_autosar(self.path, root)
+
+        rows = file.references[('Network', 'Trigger')]
+        self.assertEqual(len(rows), 2)
+        self.assertIs(rows[0][0], source)
+        self.assertIs(rows[1][0], target)
+        self.assertTrue(all(owner == ('Package', 'Gateway') for _, owner in rows))
+        self.assertEqual(file.uuids, {})
+        rows[1][0].value = '/Network/NewTrigger'
+        file.scan_ref()
+        file.save()
+
+        reloaded = ArxmlFile().parse_file(self.path)
+        new_target, owner = reloaded.references[('Network', 'NewTrigger')][0]
+        self.assertIsInstance(new_target, autosar.TargetIPduRef.TargetIPduRefInner)
+        self.assertEqual(owner, ('Package', 'Gateway'))
+        self.assertEqual(len(reloaded.references[('Network', 'Trigger')]), 1)
+
     def test_shared_paths_keep_separate_objects_and_file_identity(self):
         other_path = str(Path(self.temporary.name) / 'other.arxml')
         copy2(self.path, other_path)

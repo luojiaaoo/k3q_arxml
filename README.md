@@ -99,7 +99,9 @@ for result in file.ar(autosar.SwBaseType):
 # 修改名称或引用后调用 file.scan_ref() 更新索引，调用 file.save() 保存。
 ```
 
-扫描仍使用原来的 `__scan_arobj_ref` 逻辑，只移到了 `arxml_file.py`。修改节点、引用或对象结构后仍需手动重新扫描；重命名仍需自行同步定义与引用。
+扫描沿嵌套对象和列表递归查找节点，用 `SHORT-NAME` 组成对象路径，并用 `isinstance(node, autosar.Ref)` 识别引用，包含直接和间接子类。引用结果保留实际引用节点，修改其 `.value` 后可以回写文件；引用目标可以位于其他文件或尚未加载。
+
+扫描按 XML 的树形包含结构处理，使用 Python 默认的递归深度限制。目前只支持 `/Package/Type` 形式的绝对引用，不解析 `BASE / REFERENCE-BASES` 相对引用。空名称和无效引用路径会抛出带文件及节点位置的 `ValueError`，扫描失败时保留上一轮索引；缺失或为空的 UUID 不进入索引。修改节点、引用或对象结构后仍需手动重新扫描；重命名仍需自行同步定义与引用。
 
 如果要新建一个名称字段，可以这样写：
 

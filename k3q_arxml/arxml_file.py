@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from dataclasses import Field, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 from lxml import etree
 from pydantic import BaseModel
@@ -18,9 +18,13 @@ from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .arxml_object import ArxmlObject, Ref, T
 from .log import logger
+try:
+    from .autosar import SCHEMA_VERSION, Autosar
+except ModuleNotFoundError as exc:
+    if exc.name != f'{__package__}.autosar':
+        raise
+    raise RuntimeError('尚未生成 AUTOSAR 绑定，请先运行 uv run python -m k3q_arxml generate <版本>；使用 versions 命令查看可用版本。') from exc
 
-if TYPE_CHECKING:
-    from .autosar import Autosar
 
 Filename: TypeAlias = str | Path
 Uuid: TypeAlias = str
@@ -71,21 +75,15 @@ class ArxmlFile:
     """负责单个文件的解析、索引和回写。"""
 
     def __init__(self):
-        try:
-            from .autosar import SCHEMA_VERSION, Autosar
-        except ModuleNotFoundError as exc:
-            if exc.name != f'{__package__}.autosar':
-                raise
-            raise RuntimeError('尚未生成 AUTOSAR 绑定，请先运行 uv run python -m k3q_arxml generate <版本>；使用 versions 命令查看可用版本。') from exc
-
         self.filepath = ''  # 当前 ARXML 文件的路径。
         self.parse_schema_version = SCHEMA_VERSION  # 当前绑定用于解析的 AUTOSAR 版本。
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
-        self.clazz = Autosar  # 用于反序列化根节点的 AUTOSAR 类型。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
         self.objects: dict[Ref, ArxmlObject[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
         self.references: dict[Ref, list[tuple[Any, Ref]]] = {}  # 按目标路径索引的反向引用及其来源路径。
         self.uuids: dict[Uuid, Ref] = {}  # 按 UUID 索引的对象路径。
+        # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
+        self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
         self.root: Autosar  # 当前文件对应的 AUTOSAR 根对象。
 
     def read_file_metadata(self) -> tuple[ArxmlFormat, ArxmlHeader]:
@@ -135,7 +133,7 @@ class ArxmlFile:
 
         parser = XmlParser(context=XmlContext(), config=ParserConfig(), handler=LxmlEventHandler)
         ns_map = {}
-        self.root = parser.parse(self.filepath, self.clazz, ns_map=ns_map)
+        self.root = parser.parse(self.filepath, Autosar, ns_map=ns_map)
         self.scan_ref()
         return self
 
@@ -160,9 +158,14 @@ class ArxmlFile:
         return self
 
     def scan_ref(self) -> None:
-        """沿用原扫描函数，只将结果包装为本文件的单个对象。"""
-        objects, self.references, self.uuids = self.__scan_arobj_ref(self.root)
-        self.objects = {ref: ArxmlObject(obj, self, ref) for ref, obj in objects.items()}
+        """重建对象、反向引用和 UUID 索引；扫描失败时保留上一轮索引。
+
+        先在局部变量中完成扫描和 ArxmlObject 包装，全部成功后再替换文件上的索引。
+        保留旧索引不等于撤销用户对 root 内对象的修改；索引中的节点始终是原对象。
+        """
+        objects, references, uuids = self.__scan_arobj_ref(self.root)
+        wrapped_objects = {ref: ArxmlObject(obj, self, ref) for ref, obj in objects.items()}
+        self.objects, self.references, self.uuids = wrapped_objects, references, uuids
 
     def ref(self, ref: Ref) -> ArxmlObject[Any] | None:
         """按完整 AUTOSAR 路径查找当前文件中的对象。
@@ -211,51 +214,92 @@ class ArxmlFile:
         with open(self.filepath, 'w', encoding='utf-8') as f:
             f.write(content)
 
-    @classmethod
-    def __scan_arobj_ref(
-        cls, obj, ref=None, dict_ref_from_short_name=None, dict_uuid=None, dict_search_obj_use_ref=None
-    ) -> Tuple[Dict[Ref, Any], Dict[Ref, List[Tuple[Any, Ref]]], Dict[Uuid, Ref]]:
-        if dict_ref_from_short_name is None:
-            dict_ref_from_short_name = {}
-            dict_search_obj_use_ref = {}
-            dict_uuid = {}
-        if ref is None:
-            ref = tuple()
+    def _get_fields(self, node: Any) -> tuple[Field[Any], ...]:
+        """按节点类型获取 dataclass 字段定义，缓存供本实例的后续扫描复用。
 
-        def _vars(_obj):
-            try:
-                return vars(_obj)
-            except TypeError:
-                return {}
+        调用方需先确认 node 是 dataclass 实例。字段定义包含继承字段，
+        缓存不保存实例值；实际内容仍由调用方通过 getattr() 读取。
+        """
+        node_type = type(node)
+        if node_type not in self._field_cache:
+            self._field_cache[node_type] = fields(node_type)
+        return self._field_cache[node_type]
 
-        for k, v in _vars(obj).items():
-            if callable(v) or v is None or isinstance(v, (int, float, str, bool, Enum)):
-                continue
-            # print(type(v))
-            elif isinstance(v, Iterable):
-                for i in v:
-                    if hasattr(i, 'short_name') and 'autosar' in i.__class__.__module__:  # 搜索short_name节点
-                        dict_ref_from_short_name[ref + (i.short_name.value,)] = i
-                        if hasattr(i, 'uuid'):
-                            dict_uuid[i.uuid] = ref + (i.short_name.value,)
-                        cls.__scan_arobj_ref(i, ref + (i.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
-                    else:
-                        if hasattr(i, 'value') and hasattr(i, 'dest') and type(i).__name__.upper().endswith('REF'):  # ref实例
-                            if (_ref := ref_str2ref(i.value)) not in dict_search_obj_use_ref:
-                                dict_search_obj_use_ref[_ref] = [(i, ref)]
-                            else:
-                                dict_search_obj_use_ref[_ref].append((i, ref))
-                        cls.__scan_arobj_ref(i, ref, dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
-            elif hasattr(v, 'short_name') and 'autosar' in v.__class__.__module__:  # 搜索short_name节点
-                dict_ref_from_short_name[ref + (v.short_name.value,)] = v
-                if hasattr(v, 'uuid'):
-                    dict_uuid[v.uuid] = ref + (v.short_name.value,)
-                cls.__scan_arobj_ref(v, ref + (v.short_name.value,), dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
-            else:
-                if hasattr(v, 'value') and hasattr(v, 'dest') and type(v).__name__.upper().endswith('REF'):  # ref实例
-                    if (_ref := ref_str2ref(v.value)) not in dict_search_obj_use_ref:
-                        dict_search_obj_use_ref[_ref] = [(v, ref)]
-                    else:
-                        dict_search_obj_use_ref[_ref].append((v, ref))
-                cls.__scan_arobj_ref(v, ref, dict_ref_from_short_name, dict_uuid, dict_search_obj_use_ref)
-        return dict_ref_from_short_name, dict_search_obj_use_ref, dict_uuid
+    def __scan_arobj_ref(self, obj: Autosar) -> tuple[dict[Ref, Any], dict[Ref, list[tuple[Any, Ref]]], dict[Uuid, Ref]]:
+        """遍历 dataclass 声明字段并递归扫描，返回对象、反向引用和 UUID 三组索引。
+
+        路径只追加 SHORT-NAME，无名容器沿用父路径。
+        例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
+            references[('Types', 'Speed')] = [(引用节点, ('Pkg', 'Owner'))]
+        引用节点保留原对象，之后可修改 .value 并回写；这里只登记目标路径，
+        不查找目标对象，也不沿引用跳到其他对象。
+
+        按 XML 树的包含关系递归，不做循环检测。使用 Python 默认递归深度限制。
+        """
+        from .autosar import Ref as AutosarRef
+
+        objects: dict[Ref, Any] = {}
+        references: dict[Ref, list[tuple[Any, Ref]]] = {}
+        uuids: dict[Uuid, Ref] = {}
+
+        def _object_ref(node: Any, ref: Ref) -> Ref:
+            """登记具名对象及其 UUID，并返回包含当前 SHORT-NAME 的新路径。"""
+
+            # Identifier.value 才是 SHORT-NAME 文本；只检查组成路径所需的基本条件。
+            name = getattr(node.short_name, 'value', None)
+            if not isinstance(name, str) or not name.strip() or '/' in name:
+                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.short_name): SHORT-NAME 必须是非空且不含 / 的字符串')
+            # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
+            named_ref = (*ref, name)
+            # 保存实际 XML 对象，后续由 scan_ref() 统一包装为 ArxmlObject。
+            objects[named_ref] = node
+            uuid = getattr(node, 'uuid', None)
+            # UUID 是可选属性；缺失 UUID 的节点仍登记在 objects 中。
+            if uuid is not None and uuid != '':
+                if not isinstance(uuid, str):
+                    raise ValueError(f'{self.filepath}: {ref2ref_str(named_ref)} ({type(node).__qualname__}.uuid): UUID 必须是字符串')
+                uuids[uuid] = named_ref
+            return named_ref
+
+        def _add_reference(node: Any, ref: Ref) -> None:
+            """将一处 XML 引用加入按目标路径组织的反向引用索引。"""
+
+            value = node.value
+            # 先确认是绝对路径；否则下面的转换会把相对路径的第一段错误地丢掉。
+            if not isinstance(value, str) or not value.startswith('/'):
+                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用必须是非空绝对路径，不支持相对引用或 BASE 解析')
+            target_ref = ref_str2ref(value)
+            # '/'、'/Types/'、'/Types//Speed' 转换后含空字符串，不能作为有效目标路径。
+            if not all(target_ref):
+                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
+            # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
+            # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
+            references.setdefault(target_ref, []).append((node, ref))
+
+        def _scan(node: Any, ref: Ref) -> None:
+            if isinstance(node, (list, tuple)):
+                # 列表的话，继续向下搜索
+                for child in node:
+                    _scan(child, ref)
+                return
+
+            # 不是数据类，跳过
+            if isinstance(node, type) or not is_dataclass(node):
+                return
+
+            # 发现是路径节点，登记对象和 UUID
+            if hasattr(node, 'short_name'):
+                ref = _object_ref(node, ref)
+
+            # 发现是引用节点，登记反向引用
+            if isinstance(node, AutosarRef):
+                _add_reference(node, ref)
+
+            # fields() 包含继承字段，普通和 slots dataclass 均适用；不会遍历临时 Python 属性。
+            for model_field in self._get_fields(node):
+                # 字段定义包含名称和 XML 元数据；getattr() 读取当前实例的实际值。
+                value = getattr(node, model_field.name)
+                _scan(value, ref)
+
+        _scan(obj, ())
+        return objects, references, uuids
