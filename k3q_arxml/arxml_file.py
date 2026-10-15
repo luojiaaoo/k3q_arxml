@@ -299,7 +299,10 @@ class ArxmlFile:
             for model_field in self._get_fields(node):
                 # 字段定义包含名称和 XML 元数据；getattr() 读取当前实例的实际值。
                 value = getattr(node, model_field.name)
-                _scan(value, ref)
+                if value is None:
+                    continue
+                if isinstance(value, (list, tuple)) or (is_dataclass(value) and not isinstance(value, type)):
+                    _scan(value, ref)
 
         _scan(obj, ())
         return objects, references, uuids
