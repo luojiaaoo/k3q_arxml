@@ -278,13 +278,15 @@ class ArxmlFile:
         遇到具名对象时直接创建 ArxmlNamedNode，包装的 ref 使用本次扫描得到的路径。
         路径只追加 SHORT-NAME，无名容器沿用父路径。
         例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
-            references[('Types', 'Speed')] = [ArxmlRefNode(filepath=self.filepath, xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
+            references[('Types', 'Speed')] = [ArxmlRefNode(xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
         记录的 .xml_obj 保留原引用节点，可通过 .xml_obj.value 修改引用并回写；这里只登记目标路径，
         不查找目标对象，也不沿引用跳到其他对象。
 
         按 XML 树的包含关系递归，不做循环检测。使用 Python 默认递归深度限制。
         """
         from .autosar import Ref
+
+        assert self.filepath is not None
 
         objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
         references: dict[TupleRef, list[ArxmlRefNode]] = {}
@@ -300,7 +302,7 @@ class ArxmlFile:
             # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
             named_ref = (*ref, name)
             # 在登记对象时直接完成包装，调用方无需再次转换 objects。
-            objects[named_ref] = ArxmlNamedNode(filepath=cast(Filepath, self.filepath), xml_obj=node, ref=named_ref)
+            objects[named_ref] = ArxmlNamedNode(xml_obj=node, ref=named_ref)
             uuid = getattr(node, 'uuid', None)
             # UUID 是可选属性；缺失 UUID 的节点仍登记在 objects 中。
             if uuid is not None and uuid != '':
@@ -322,8 +324,7 @@ class ArxmlFile:
                 raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
             # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
             # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
-            assert self.filepath is not None
-            references.setdefault(target_ref, []).append(ArxmlRefNode(filepath=self.filepath, xml_obj=node, owner_ref=ref))
+            references.setdefault(target_ref, []).append(ArxmlRefNode(xml_obj=node, owner_ref=ref))
 
         def _scan(node: Any, ref: TupleRef, parent: Any) -> None:
             if isinstance(node, (list, tuple)):
@@ -336,12 +337,14 @@ class ArxmlFile:
             if isinstance(node, type) or not is_dataclass(node):
                 return
 
-            # 确保节点可以添加 arxml_parent 属性；如果节点声明了该字段，抛出异常。
+            # 注入的属性不能覆盖数据类声明的 XML 字段。
             if 'arxml_parent' in type(node).__dataclass_fields__:
                 raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_parent 字段，无法用于父节点')
-            
-            # 为当前节点设置父节点引用
+            if 'arxml_filepath' in type(node).__dataclass_fields__:
+                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_filepath 字段，无法用于文件路径')
+
             node.arxml_parent = parent
+            node.arxml_filepath = self.filepath
 
             # 发现是路径节点，登记对象和 UUID
             if hasattr(node, 'short_name'):

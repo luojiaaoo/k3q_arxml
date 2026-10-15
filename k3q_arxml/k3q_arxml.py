@@ -27,7 +27,7 @@ class IOArxml:
         索引查询应放在上下文退出后。
         异常退出也更新已发生的修改，不自动回滚；保存仍需调用 flush_to_file()。
         """
-        file = self.files[node.filepath]
+        file = self.files[node.xml_obj.arxml_filepath]
         try:
             yield node.xml_obj
         finally:
@@ -59,7 +59,7 @@ class IOArxml:
             ArxmlRefNode 列表，无引用时返回空列表。
             每项的 .xml_obj 是实际 XML 引用节点，通过 .xml_obj.value 读写目标路径；
             使用 .set_dest(路径元组) 修改该引用节点的目标路径；
-            .owner_ref 是包含该引用的最近具名对象的路径，.filepath 是引用所在文件路径。
+            .owner_ref 是包含该引用的最近具名对象的路径，.xml_obj.arxml_filepath 是引用所在文件路径。
             同一来源对象中的多处引用分别返回，不合并。
 
         修改引用时，以包含该引用的具名节点为编辑根；edit() 退出后再查询。

@@ -71,6 +71,10 @@ class ArxmlTests(unittest.TestCase):
         self.assertIs(packages.arxml_parent, root)
         self.assertIs(package.arxml_parent, packages)
         self.assertIs(package.short_name.arxml_parent, package)
+        self.assertEqual(root.arxml_filepath, self.path)
+        self.assertEqual(packages.arxml_filepath, self.path)
+        self.assertEqual(package.arxml_filepath, self.path)
+        self.assertEqual(package.short_name.arxml_filepath, self.path)
 
         file.save()
         reloaded = ArxmlFile().parse_file(self.path)
@@ -90,6 +94,8 @@ class ArxmlTests(unittest.TestCase):
         self.assertIs(package.elements.arxml_parent, package)
         self.assertIs(gateway.arxml_parent, package.elements)
         self.assertIs(gateway.short_name.arxml_parent, gateway)
+        self.assertEqual(gateway.arxml_filepath, self.path)
+        self.assertEqual(gateway.short_name.arxml_filepath, self.path)
         self.assertIs(file.ref(('Package', 'Gateway')).xml_obj, gateway)
 
     def test_named_node_edit_refreshes_indexes_and_content(self):
@@ -157,7 +163,7 @@ class ArxmlTests(unittest.TestCase):
             ref = next(iter(file.objects))
             self.assertIs(document.ref(ref), file.ref(ref))
             self.assertIsInstance(file.filepath, Path)
-            self.assertEqual(file.ref(ref).filepath, self.path)
+            self.assertEqual(file.ref(ref).xml_obj.arxml_filepath, self.path)
             with document.edit(file.ar(self.autosar.SwBaseType)[0]) as obj:
                 obj.uuid = 'saved-once'
 
@@ -252,7 +258,8 @@ class ArxmlTests(unittest.TestCase):
         self.assertIsInstance(row, ArxmlNode)
         self.assertNotIsInstance(row, ArxmlNamedNode)
         self.assertIsInstance(row.xml_obj, autosar.TargetIPduRef.TargetIPduRefInner)
-        self.assertEqual(row.filepath, reloaded.filepath)
+        self.assertFalse(hasattr(row, 'filepath'))
+        self.assertEqual(row.xml_obj.arxml_filepath, reloaded.filepath)
         self.assertEqual(row.owner_ref, ('Package', 'Gateway'))
         self.assertEqual(len(reloaded.references[('Network', 'Trigger')]), 1)
 
@@ -293,7 +300,7 @@ class ArxmlTests(unittest.TestCase):
 
         for file in document.files.values():
             cached = file.references[ref]
-            file_results = [result for result in results if result.filepath == file.filepath]
+            file_results = [result for result in results if result.xml_obj.arxml_filepath == file.filepath]
             self.assertEqual(len(file_results), len(cached))
             expected_count += len(cached)
             for result, row in zip(file_results, cached):
@@ -304,10 +311,10 @@ class ArxmlTests(unittest.TestCase):
                 self.assertNotIsInstance(result, ArxmlNamedNode)
                 self.assertIsInstance(result.xml_obj, self.autosar.Ref)
                 self.assertIsNotNone(file.ref(result.owner_ref))
-                self.assertEqual(result.filepath, file.filepath)
+                self.assertEqual(result.xml_obj.arxml_filepath, file.filepath)
 
         self.assertEqual(len(results), expected_count)
-        self.assertEqual({result.filepath for result in results}, {self.path, other_path})
+        self.assertEqual({result.xml_obj.arxml_filepath for result in results}, {self.path, other_path})
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
     def test_reference_target_edit_round_trips(self):
@@ -332,7 +339,7 @@ class ArxmlTests(unittest.TestCase):
         reloaded = ArxmlFile().parse_file(self.path)
         self.assertTrue(any(row.owner_ref == reference.owner_ref and row.xml_obj.value == ref2ref_str(updated_ref) for row in reloaded.references[updated_ref]))
 
-        plain_reference = ArxmlRefNode(filepath=self.path, xml_obj=self.autosar.Ref(value='/Target'), owner_ref=())
+        plain_reference = ArxmlRefNode(xml_obj=self.autosar.Ref(value='/Target'), owner_ref=())
         plain_reference.set_dest(('Other', 'Target'))
         self.assertEqual(plain_reference.xml_obj.value, '/Other/Target')
 
@@ -346,7 +353,7 @@ class ArxmlTests(unittest.TestCase):
         document = IOArxml([self.path, other_path])
         ref = ('AUTOSAR_Platform', 'BaseTypes', 'float32')
         self.assertIsNone(document.files[other_path].ref(ref))
-        self.assertEqual({row.filepath for row in document.ref_to_ref(ref)}, {self.path, other_path})
+        self.assertEqual({row.xml_obj.arxml_filepath for row in document.ref_to_ref(ref)}, {self.path, other_path})
         target = document.ref(ref)
         assert target is not None
         updated_ref = (*ref[:-1], ref[-1] + '_renamed')
@@ -354,8 +361,8 @@ class ArxmlTests(unittest.TestCase):
         target.xml_obj.short_name.value = updated_ref[-1]
         for reference in references:
             reference.set_dest(updated_ref)
-        document.files[target.filepath].update_node(target)
-        for filepath, owner_ref in {(reference.filepath, reference.owner_ref) for reference in references}:
+        document.files[target.xml_obj.arxml_filepath].update_node(target)
+        for filepath, owner_ref in {(reference.xml_obj.arxml_filepath, reference.owner_ref) for reference in references}:
             file = document.files[filepath]
             owner = file.ref(owner_ref)
             assert owner is not None
@@ -366,7 +373,7 @@ class ArxmlTests(unittest.TestCase):
         document.flush_to_file()
         reloaded = IOArxml([self.path, other_path])
         self.assertIsNotNone(reloaded.ref(updated_ref))
-        self.assertEqual({row.filepath for row in reloaded.ref_to_ref(updated_ref)}, {self.path, other_path})
+        self.assertEqual({row.xml_obj.arxml_filepath for row in reloaded.ref_to_ref(updated_ref)}, {self.path, other_path})
 
     def test_file_can_be_used_independently(self):
         file = ArxmlFile().parse_file(self.path)
@@ -376,7 +383,8 @@ class ArxmlTests(unittest.TestCase):
         old_ref = obj.ref
         self.assertIsInstance(obj, ArxmlNamedNode)
         self.assertIsInstance(obj, ArxmlNode)
-        self.assertEqual(obj.filepath, file.filepath)
+        self.assertFalse(hasattr(obj, 'filepath'))
+        self.assertEqual(obj.xml_obj.arxml_filepath, file.filepath)
         self.assertIs(file.ref(obj.ref).xml_obj, obj.xml_obj)
         obj.xml_obj.short_name.value = 'NewName'
         self.assertEqual(obj.short_name, 'NewName')

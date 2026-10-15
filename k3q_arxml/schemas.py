@@ -50,9 +50,8 @@ class ArxmlHeader(BaseModel):
 
 @dataclass
 class ArxmlNode(Generic[T]):
-    """保存 ARXML 节点所在文件的路径和实际 XML 对象。"""
+    """保存实际 XML 对象；对象的 arxml_filepath 是所属文件的绝对路径。"""
 
-    filepath: Filepath
     xml_obj: T
 
 
@@ -85,7 +84,6 @@ class ArxmlRefNode(ArxmlNode['Ref']):
 
     Attributes:
         xml_obj: 实际 XML 引用节点，通过 .xml_obj.value 或 set_dest() 修改引用目标路径。
-        filepath: 引用所在文件的路径。
         owner_ref: 包含该引用的最近具名对象的路径。
     """
 

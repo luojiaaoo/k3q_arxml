@@ -94,6 +94,8 @@ class ScanRefTests(unittest.TestCase):
         self.assertEqual(root.parent, 'original')
         self.assertIsNone(root.arxml_parent)
         self.assertIs(root.child.arxml_parent, root)
+        self.assertEqual(root.arxml_filepath, Path('scan.arxml').resolve())
+        self.assertEqual(root.child.arxml_filepath, root.arxml_filepath)
 
     def test_rejects_arxml_parent_field_collision(self):
         @dataclass
@@ -102,6 +104,14 @@ class ScanRefTests(unittest.TestCase):
 
         with self.assertRaisesRegex(TypeError, r'HasArxmlParent.*已声明 arxml_parent 字段'):
             self.scan(HasArxmlParent())
+
+    def test_rejects_arxml_filepath_field_collision(self):
+        @dataclass
+        class HasArxmlFilepath:
+            arxml_filepath: Path = Path('original.arxml')
+
+        with self.assertRaisesRegex(TypeError, r'HasArxmlFilepath.*已声明 arxml_filepath 字段'):
+            self.scan(HasArxmlFilepath())
 
     def test_fields_sequences_inheritance_and_reference_identity(self):
         first = Reference('/Types/Target')
@@ -124,7 +134,7 @@ class ScanRefTests(unittest.TestCase):
             self.assertIsInstance(row, ArxmlNode)
             self.assertNotIsInstance(row, ArxmlNamedNode)
             self.assertIs(row.xml_obj, expected)
-            self.assertEqual(row.filepath, Path('scan.arxml').resolve())
+            self.assertEqual(row.xml_obj.arxml_filepath, Path('scan.arxml').resolve())
         self.assertEqual(file.uuids, {'child-id': ('Package', 'Child')})
 
     def test_only_declared_child_fields_and_ref_instances_are_indexed(self):
@@ -177,7 +187,7 @@ class ScanRefTests(unittest.TestCase):
 
         self.assertIsNone(file.ref(('Package', 'Old')))
         self.assertIs(file.ref(('Package', 'New')).xml_obj, target)
-        self.assertEqual(file.references, {('Package', 'New'): [ArxmlRefNode(filepath=file.filepath, xml_obj=reference, owner_ref=('Package',))]})
+        self.assertEqual(file.references, {('Package', 'New'): [ArxmlRefNode(xml_obj=reference, owner_ref=('Package',))]})
         self.assertEqual(file.uuids, {'target-id': ('Package', 'New')})
 
     def test_invalid_references_report_location_and_keep_previous_indexes(self):
@@ -228,7 +238,7 @@ class ScanRefTests(unittest.TestCase):
         file = self.scan(Container(value=reference))
         row = file.references[('Old',)][0]
         self.assertIs(row.xml_obj, reference)
-        self.assertEqual(row.filepath, file.filepath)
+        self.assertEqual(row.xml_obj.arxml_filepath, file.filepath)
         self.assertEqual(row.owner_ref, ())
 
         row.xml_obj.value = '/New'
