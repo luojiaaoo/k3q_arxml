@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Tuple, TypeAlias, TypeVar, cast
 
 from pydantic import BaseModel
+from xsdata.formats.dataclass.models.generics import DerivedElement
+from xsdata.formats.dataclass.serializers import XmlSerializer
+from xsdata.formats.dataclass.serializers.config import SerializerConfig
+from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
+from xsdata.utils.namespaces import split_qname
 
 if TYPE_CHECKING:
     from .autosar import Ref  # noqa: F401 -- 用于基类的前向引用。
@@ -53,9 +58,20 @@ class ArxmlNode(Generic[T]):
 
 @dataclass
 class ArxmlNamedNode(ArxmlNode[T]):
-    """带有 SHORT-NAME 的 ARXML 节点，ref 为其完整路径。"""
+    """带有 SHORT-NAME 的 ARXML 节点，xml_obj 为实际 XML 对象。
+
+    ref 保存索引中上次登记的完整路径，update_node() 成功后与新索引同步。
+    """
 
     ref: TupleRef
+
+    @property
+    def content(self) -> str:
+        """按需序列化当前 XML 节点及其子节点，不缓存 XML 字符串。"""
+        serializer = XmlSerializer(config=SerializerConfig(xml_declaration=False, ignore_default_attributes=True), writer=LxmlEventWriter)
+        qname = serializer.context.build(type(self.xml_obj)).target_qname
+        namespace, _ = split_qname(qname)
+        return serializer.render(DerivedElement(qname=qname, value=self.xml_obj), ns_map={None: namespace} if namespace else None)
 
     @property
     def short_name(self) -> str:

@@ -17,7 +17,7 @@
 
 | 路径 | 职责与维护方式 |
 | --- | --- |
-| `k3q_arxml/arxml_file.py` | `ArxmlFile`，负责单文件解析、原有引用扫描和回写 |
+| `k3q_arxml/arxml_file.py` | `ArxmlFile`，负责单文件解析、索引初始化、节点增量更新和回写 |
 | `k3q_arxml/k3q_arxml.py` | `IOArxml`，负责多文件管理和查询汇总 |
 | `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlNamedNode` 和 logger |
 | `k3q_arxml/log.py` | Loguru 的输出、格式和日志级别配置，默认 INFO |
@@ -63,14 +63,16 @@ uv run python -m k3q_arxml generate 4.2.2
 
 ### 对象、路径与引用
 
-- `IOArxml(filepaths=[...])` 为每个文件创建 `ArxmlFile`；文件层负责解析并调用 `scan_ref()` 建立索引。单文件也可以直接使用 `ArxmlFile`。
+- `IOArxml(filepaths=[...])` 为每个文件创建 `ArxmlFile`；文件层解析后调用一次 `scan_ref()`，全量建立初始索引。后续编辑通过 `update_node()` 增量维护。单文件也可以直接使用 `ArxmlFile`。
 - 文件路径参数 `Filepath` 统一为 `Path`；加载、添加和查询时使用 `resolve()` 规范化，文件层保存绝对路径，IO 层按绝对路径去重。`append(filepath)` 加载已有 ARXML 文件，拒绝已加载、不存在或非普通文件的路径；解析成功后才加入管理，添加时不写回文件。
 - 路径使用元组，如 `('Package', 'Type')`；XML 引用使用 `/Package/Type`。使用 `ref_str2ref()` / `ref2ref_str()` 转换。
 - `ref()` 返回唯一包装对象或 None；`ar()` 按具体类型与路径前缀返回对象列表。
-- 每个 `ArxmlNamedNode` 只保存一个 `.xml_obj`，通过 `.file` 关联所属文件。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。
-- `ref_to_ref()` 返回 `(引用对象, 所在对象路径, 文件名)` 列表。
-- 对象和反向引用索引由各文件维护，IO 层汇总已有索引。修改名称、引用或对象结构后，在依赖新结构查询前重新 `scan_ref()`。
-- 保持最小实现，不顺便增加功能。`ArxmlFile.__scan_arobj_ref()` 是核心扫描函数，本次拆分仅搬移原逻辑，后续修改应控制范围。
+- 每个 `ArxmlNamedNode` 保存实际 XML 对象 `.xml_obj`、索引路径 `.ref` 和所属文件路径 `.filepath`；需要文件对象时使用 `IOArxml.get_file(node.filepath)`。增量更新成功后复用原包装，并同步根节点和仍保留的后代包装的 `.ref`。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。
+- `ref_to_ref()` 返回 `ArxmlRefNode` 列表，每项通过 `.xml_obj`、`.owner_ref` 和 `.filepath` 保存引用对象及来源位置。
+- 对象、反向引用和 UUID 索引由各文件维护，IO 层汇总已有索引。常规流程是加载时全量初始化一次，后续调用 `IOArxml.edit(node)` 自动增量更新，或直接修改 `node.xml_obj` 后调用 `file.update_node(node)`，完成后再查询新结构。
+- `scan_ref()` 从 `root` 生成全部包装和初始索引，不为初始化添加读取旧索引或复用旧包装的逻辑。`update_node()` 只扫描传入节点的整棵子树，并清理、合并三份索引；增删、替换或移动编辑根本身时，传入包含全部变化的共同具名祖先。
+- 编辑接口信任当前文件查询返回的有效包装，不重复添加类型、文件归属、对象身份或过期校验。
+- 保持最小实现，不顺便增加功能。`ArxmlFile.__scan_arobj_ref()` 只负责扫描传入对象并返回索引结果，由调用方负责全量初始化或增量合并，修改应控制范围。
 - 重命名需同步目标 `short_name.value` 和所有关联引用。明确批量处理使用旧索引还是新索引，不在迭代活动索引时重建它。
 
 ### 文件与生成代码

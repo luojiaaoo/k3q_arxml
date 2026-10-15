@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import pprint
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from .arxml_file import ArxmlFile, ref_str2ref, ref2ref_str
@@ -20,6 +21,20 @@ class IOArxml:
 
     def get_file(self, filename: Filepath) -> ArxmlFile:
         return self.files[filename.resolve()]
+
+    @contextmanager
+    def edit(self, node: ArxmlNamedNode[T]) -> Iterator[T]:
+        """以任意具名节点为根编辑 XML 对象，退出时调用文件层 update_node() 增量更新索引。
+
+        node 使用已加载文件查询返回的有效包装；修改范围限于该节点及其子树。
+        索引查询应放在上下文退出后。
+        异常退出也更新已发生的修改，不自动回滚；保存仍需调用 flush_to_file()。
+        """
+        file = self.files[node.filepath]
+        try:
+            yield node.xml_obj
+        finally:
+            file.update_node(node)
 
     @property
     def objects(self) -> dict[TupleRef, list[ArxmlNamedNode[Any]]]:
@@ -66,11 +81,16 @@ class IOArxml:
             .owner_ref 是包含该引用的最近具名对象的路径，.filepath 是引用所在文件路径。
             同一来源对象中的多处引用分别返回，不合并。
 
-        修改引用或对象名称、结构后，应先调用 scan_ref() 更新索引再查询。
+        修改引用时，以包含该引用的具名节点为编辑根；edit() 退出后再查询。
+        直接修改后，对该具名节点调用所属文件的 update_node() 增量更新索引。
         """
         return [row for file in self.files.values() for row in file.references.get(ref, [])]
 
     def scan_ref(self, debug_uuid: bool = False) -> None:
+        """显式全量扫描所有已加载文件；debug_uuid=True 时打印各文件的 UUID 索引。
+
+        文件加载时已分别完成初始扫描；后续编辑使用 edit() 或文件层 update_node() 增量更新。
+        """
         for file in self.files.values():
             file.scan_ref()
         if debug_uuid:

@@ -72,8 +72,7 @@ for reference in references:
     # xml_obj.value 是目标路径，owner_ref 和 filepath 标明引用出现的位置。
     print(reference.xml_obj.value, reference.owner_ref, reference.filepath)
 
-# 如果修改了名称、引用或对象结构，重新扫描后再继续查询。
-# io_arxml.scan_ref()
+# 后续通过 io_arxml.edit(result) 编辑节点，退出时自动更新该子树的索引。
 
 # 把读取到的全部内容输出到 model.txt，方便查看。
 io_arxml.print(print_filepath=Path('model.txt'))
@@ -88,6 +87,21 @@ io_arxml.print(print_filepath=Path('model.txt'))
 2. `ar()` 返回对象列表，每一项只对应一个文件里的一个节点。
 3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径，`result.filepath` 是所在文件的路径；需要文件对象时使用 `io_arxml.get_file(result.filepath)`。
 4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
+
+每个文件加载时由 `scan_ref()` 全量扫描一次，建立 `objects`、`references` 和 `uuids` 三份初始索引。后续节点编辑使用 `update_node()` 增量维护已有索引。
+
+`result.content` 按需导出当前节点及其子节点的 XML 字符串，不缓存完整文本。使用 `io_arxml.edit(result)` 以任意层级的具名节点为根修改其 XML 对象，退出上下文后自动调用文件层 `update_node(result)` 更新该子树的三份索引：
+
+```python
+result = io_arxml.ar(autosar.SwBaseType)[0]
+with io_arxml.edit(result) as base_type:
+    base_type.uuid = 'updated-base-type'  # 修改这个 SW-BASE-TYPE 节点的 UUID 属性。
+
+file = io_arxml.get_file(result.filepath)
+print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经更新。
+```
+
+编辑时使用从当前文件查询得到、仍在 XML 树中的有效节点包装。上下文返回实际 XML 对象，IO 层通过节点的 `.filepath` 定位已加载文件，再调用文件层的 `update_node(result)` 局部更新索引。单独使用 `ArxmlFile` 时，也可以在修改后直接调用 `file.update_node(result)`。修改范围限于编辑根节点及其子树；删除或移动编辑根本身时，应以包含全部变化的共同具名祖先为编辑根。新的名称、引用和 UUID 查询应放在上下文退出后；更新成功后复用原包装，并同步根节点及仍保留的后代包装的 `.ref`，可以继续用同一包装编辑。需要保留旧路径时，应在修改前另存 `old_ref = result.ref`。其他分支的节点包装保持有效。异常退出同样刷新已经发生的修改，不自动回滚；刷新失败或路径与其他分支冲突时保留上一轮索引和包装路径。保存到磁盘仍需调用 `file.save()` 或 `io_arxml.flush_to_file()`。
 
 文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
 
@@ -109,14 +123,14 @@ for result in file.ar(autosar.SwBaseType):
 # 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存实际引用节点和来源路径。
 for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
     print(reference.xml_obj.value, reference.owner_ref, reference.filepath)
-    # owner_ref 是包含该引用的具名对象路径；修改 reference.xml_obj.value 可更新引用目标。
+    # owner_ref 是包含该引用的具名对象路径；修改引用后，以这个具名节点为根增量更新。
 
-# 修改名称或引用后调用 file.scan_ref() 更新索引，调用 file.save() 保存。
+# 直接修改某个 result.xml_obj 后，对该 result 调用 file.update_node(result)，再调用 file.save() 保存。
 ```
 
 扫描沿嵌套对象和列表递归查找节点，用 `SHORT-NAME` 组成对象路径，并用 `isinstance(node, autosar.Ref)` 识别引用，包含直接和间接子类。引用结果保留实际引用节点，修改其 `.value` 后可以回写文件；引用目标可以位于其他文件或尚未加载。
 
-扫描按 XML 的树形包含结构处理，使用 Python 默认的递归深度限制。目前只支持 `/Package/Type` 形式的绝对引用，不解析 `BASE / REFERENCE-BASES` 相对引用。空名称和无效引用路径会抛出带文件及节点位置的 `ValueError`，扫描失败时保留上一轮索引；缺失或为空的 UUID 不进入索引。修改节点、引用或对象结构后仍需手动重新扫描；重命名仍需自行同步定义与引用。
+扫描按 XML 的树形包含结构处理，使用 Python 默认的递归深度限制。目前只支持 `/Package/Type` 形式的绝对引用，不解析 `BASE / REFERENCE-BASES` 相对引用。空名称和无效引用路径会抛出带文件及节点位置的 `ValueError`，扫描失败时保留上一轮索引；缺失或为空的 UUID 不进入索引。加载时由 `scan_ref()` 全量建立索引；后续通过 `edit()` 自动增量更新，直接修改 `node.xml_obj` 后调用 `update_node(node)`。重命名仍需自行同步定义与引用。
 
 如果要新建一个名称字段，可以这样写：
 

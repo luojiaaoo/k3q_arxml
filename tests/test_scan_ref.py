@@ -1,11 +1,12 @@
 import sys
 import unittest
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml
 
 
 @dataclass(slots=True)
@@ -67,6 +68,11 @@ class ScanRefTests(unittest.TestCase):
 
     def scan(self, root):
         return ArxmlFile().parse_autosar(Path('scan.arxml'), root)
+
+    def edit(self, file, node):
+        document = IOArxml([])
+        document.files[file.filepath] = file
+        return document.edit(node)
 
     def test_fields_sequences_inheritance_and_reference_identity(self):
         first = Reference('/Types/Target')
@@ -217,3 +223,285 @@ class ScanRefTests(unittest.TestCase):
             file = self.scan(Container(value=reference))
         self.assertEqual(file.objects, {})
         self.assertIs(file.references[('Target',)][0].xml_obj, reference)
+
+    def test_edit_nested_named_root_refreshes_objects_references_and_uuids(self):
+        reference = Reference('/Package/Owner/Old')
+        target = NamedNode(Text('Old'), uuid='old-target')
+        owner = NamedNode(Text('Owner'), uuid='old-owner', child=reference, content=[target])
+        file = self.scan(Container(content=[NamedNode(Text('Package'), content=[owner]), NamedNode(Text('Other'))]))
+
+        with self.edit(file, file.ref(('Package', 'Owner'))) as obj:
+            self.assertIs(obj, owner)
+            obj.short_name.value = 'Renamed'
+            obj.uuid = 'new-owner'
+            target.short_name.value = 'New'
+            target.uuid = 'new-target'
+            reference.value = '/Package/Renamed/New'
+            obj.content.append(NamedNode(Text('Added')))
+
+        self.assertIsNone(file.ref(('Package', 'Owner')))
+        self.assertIs(file.ref(('Package', 'Renamed', 'New')).xml_obj, target)
+        self.assertIsNotNone(file.ref(('Package', 'Renamed', 'Added')))
+        self.assertIsNotNone(file.ref(('Other',)))
+        self.assertNotIn(('Package', 'Owner', 'Old'), file.references)
+        self.assertEqual(file.references[('Package', 'Renamed', 'New')][0].owner_ref, ('Package', 'Renamed'))
+        self.assertEqual(file.uuids, {'new-owner': ('Package', 'Renamed'), 'new-target': ('Package', 'Renamed', 'New')})
+
+    def test_edit_removal_refreshes_indexes(self):
+        target = NamedNode(Text('Child'), uuid='child-id', child=Reference('/Target'))
+        file = self.scan(NamedNode(Text('Package'), content=[target]))
+
+        with self.edit(file, file.ref(('Package',))) as package:
+            package.content.clear()
+
+        self.assertIsNone(file.ref(('Package', 'Child')))
+        self.assertEqual(file.references, {})
+        self.assertEqual(file.uuids, {})
+
+    def test_edit_refreshes_completed_changes_when_body_raises(self):
+        file = self.scan(NamedNode(Text('Package')))
+        with self.assertRaisesRegex(RuntimeError, 'body failure'):
+            with self.edit(file, file.ref(('Package',))) as obj:
+                obj.short_name.value = 'Renamed'
+                raise RuntimeError('body failure')
+        self.assertIsNone(file.ref(('Package',)))
+        self.assertIsNotNone(file.ref(('Renamed',)))
+
+    def test_edit_invalid_data_preserves_previous_indexes(self):
+        reference = Reference('/Target')
+        file = self.scan(NamedNode(Text('Package'), child=reference))
+        previous = file.objects, file.references, file.uuids
+        with self.assertRaises(ValueError):
+            with self.edit(file, file.ref(('Package',))) as obj:
+                obj.child.value = 'invalid-relative-ref'
+        for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
+            self.assertIs(current, old)
+
+    def test_edit_scans_only_its_subtree_and_keeps_other_wrappers(self):
+        changed = NamedNode(Text('A'), child=Reference('/Shared'))
+        untouched = NamedNode(Text('B'), child=Reference('/Shared'))
+        root = Container(content=[changed, untouched])
+        file = self.scan(root)
+        other = file.ref(('B',))
+        other_reference = file.references[('Shared',)][1]
+
+        with patch.object(file, 'scan_ref', side_effect=AssertionError('unexpected full scan')):
+            with patch.object(file, '_get_fields', wraps=file._get_fields) as get_fields:
+                with self.edit(file, file.ref(('A',))) as obj:
+                    obj.child.value = '/Changed'
+        visited = [call.args[0] for call in get_fields.call_args_list]
+        self.assertTrue(any(value is changed for value in visited))
+        self.assertFalse(any(value is root or value is untouched or value is untouched.child for value in visited))
+        self.assertIs(file.ref(('B',)), other)
+        self.assertEqual(file.references[('Shared',)], [other_reference])
+        self.assertIs(file.references[('Shared',)][0], other_reference)
+        self.assertEqual(file.references[('Changed',)][0].owner_ref, ('A',))
+
+    def test_edit_rename_keeps_external_incoming_references(self):
+        target = NamedNode(Text('A'))
+        reference = Reference('/A')
+        file = self.scan(Container(content=[target, NamedNode(Text('B'), child=reference)]))
+        incoming = file.references[('A',)][0]
+        with self.edit(file, file.ref(('A',))) as obj:
+            obj.short_name.value = 'Renamed'
+        self.assertIsNone(file.ref(('A',)))
+        self.assertIs(file.ref(('Renamed',)).xml_obj, target)
+        self.assertIs(file.references[('A',)][0], incoming)
+        self.assertEqual(reference.value, '/A')
+
+    def test_edit_uuid_duplicates_keep_document_order_and_restore_previous_owner(self):
+        first = NamedNode(Text('A'), uuid='duplicate')
+        last = NamedNode(Text('B'), uuid='duplicate')
+        file = self.scan(Container(content=[first, last]))
+        with self.edit(file, file.ref(('A',))) as obj:
+            obj.uuid = 'duplicate'
+        self.assertEqual(file.uuids['duplicate'], ('B',))
+        with self.edit(file, file.ref(('B',))) as obj:
+            obj.uuid = None
+        self.assertEqual(file.uuids['duplicate'], ('A',))
+
+    def test_edit_path_conflict_and_wrapper_failure_preserve_previous_indexes(self):
+        file = self.scan(Container(content=[NamedNode(Text('A'), child=NamedNode(Text('Child'))), NamedNode(Text('B'))]))
+        previous = file.objects, file.references, file.uuids
+        node = file.ref(('A',))
+        child_node = file.ref(('A', 'Child'))
+        with self.assertRaisesRegex(ValueError, '路径.*冲突'):
+            with self.edit(file, node) as obj:
+                obj.short_name.value = 'B'
+        for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
+            self.assertIs(current, old)
+        self.assertEqual(node.ref, ('A',))
+        node.xml_obj.short_name.value = 'A'
+        with self.edit(file, node) as obj:
+            obj.short_name.value = 'Renamed'
+            obj.child.short_name.value = 'RenamedChild'
+            obj.content.append(NamedNode(Text('Added')))
+            with patch('k3q_arxml.arxml_file.ArxmlNamedNode.__init__', side_effect=RuntimeError('wrapper failure')):
+                with self.assertRaisesRegex(RuntimeError, 'wrapper failure'):
+                    file.update_node(node)
+            for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
+                self.assertIs(current, old)
+            self.assertEqual(node.ref, ('A',))
+            self.assertEqual(child_node.ref, ('A', 'Child'))
+        self.assertIs(file.ref(('B',)), previous[0][('B',)])
+        self.assertIs(file.ref(('Renamed',)), node)
+        self.assertIs(file.ref(('Renamed', 'RenamedChild')), child_node)
+
+    def test_nested_edit_of_renamed_root_refreshes_current_path(self):
+        file = self.scan(NamedNode(Text('Package'), child=NamedNode(Text('Child'))))
+        node = file.ref(('Package',))
+        with self.edit(file, node) as package:
+            package.short_name.value = 'Renamed'
+            with self.edit(file, node) as same_package:
+                same_package.uuid = 'new-id'
+            package.child.short_name.value = 'NewChild'
+        self.assertEqual(set(file.objects), {('Renamed',), ('Renamed', 'NewChild')})
+        self.assertEqual(file.uuids, {'new-id': ('Renamed',)})
+
+    def test_update_node_merges_all_subtree_changes_like_full_scan(self):
+        moved = NamedNode(Text('Moved'), uuid='moved-id', child=Reference('/Shared'))
+        removed = NamedNode(Text('Removed'), uuid='removed-id', child=Reference('/RemovedOnly'))
+        replaced = NamedNode(Text('Replaced'), uuid='replaced-id', child=Reference('/ReplacedOnly'))
+        left = NamedNode(Text('Left'), content=[moved])
+        right = NamedNode(Text('Right'))
+        package = NamedNode(Text('Package'), uuid='package-id', child=Reference('/OldOnly'), content=[removed, replaced, left, right])
+        incoming = Reference('/Package/Removed')
+        root = Container(
+            content=[
+                NamedNode(Text('Before'), uuid='before-id', child=Reference('/Shared')),
+                package,
+                NamedNode(Text('PackageExtra'), uuid='outside-id', content=[incoming, Reference('/Shared')]),
+            ]
+        )
+        file = self.scan(root)
+        node = file.ref(('Package',))
+        moved_node = file.ref(('Package', 'Left', 'Moved'))
+        outside = file.ref(('PackageExtra',))
+        outside_reference = file.references[('Package', 'Removed')][0]
+        previous_rows = file.references[('Shared',)]
+        previous_row_ids = [id(row) for row in previous_rows]
+
+        package.short_name.value = 'Renamed'
+        package.uuid = None
+        shared = Reference('/Shared')
+        package.child = Container(content=[shared, shared, Reference('/AddedTarget')])
+        replacement = NamedNode(Text('Replaced'), uuid='replacement-id', child=Reference('/Shared'))
+        added = NamedNode(Text('Added'), uuid='added-id')
+        package.content = [right, replacement, left, added]
+        left.content.clear()
+        right.content.append(moved)
+        moved.short_name.value = 'NewMoved'
+        moved.uuid = 'new-moved-id'
+        moved.child.value = '/AddedTarget'
+
+        # 同一包装重复提交，验证改名后路径已同步，且引用不会越积越多。
+        file.update_node(node)
+        file.update_node(node)
+
+        self.assertEqual(
+            list(file.objects),
+            [
+                ('Before',),
+                ('Renamed',),
+                ('Renamed', 'Right'),
+                ('Renamed', 'Right', 'NewMoved'),
+                ('Renamed', 'Replaced'),
+                ('Renamed', 'Left'),
+                ('Renamed', 'Added'),
+                ('PackageExtra',),
+            ],
+        )
+        self.assertIs(file.ref(('Renamed', 'Replaced')).xml_obj, replacement)
+        self.assertIs(file.ref(('Renamed',)), node)
+        self.assertEqual(node.ref, ('Renamed',))
+        self.assertIs(file.ref(('Renamed', 'Right', 'NewMoved')), moved_node)
+        self.assertEqual(moved_node.ref, ('Renamed', 'Right', 'NewMoved'))
+        self.assertIs(file.ref(('PackageExtra',)), outside)
+        self.assertIs(file.references[('Package', 'Removed')][0], outside_reference)
+        self.assertEqual(incoming.value, '/Package/Removed')
+        self.assertEqual([id(row) for row in previous_rows], previous_row_ids)
+        for target in ('RemovedOnly', 'ReplacedOnly', 'OldOnly'):
+            self.assertNotIn((target,), file.references)
+        self.assertEqual(len(file.references[('Shared',)]), 5)
+        self.assertEqual(sum(row.xml_obj is shared for row in file.references[('Shared',)]), 2)
+        self.assertEqual(file.references[('AddedTarget',)][1].owner_ref, ('Renamed', 'Right', 'NewMoved'))
+        for uuid in ('package-id', 'removed-id', 'replaced-id', 'moved-id'):
+            self.assertNotIn(uuid, file.uuids)
+        self.assertEqual(file.uuids['replacement-id'], ('Renamed', 'Replaced'))
+        self.assertEqual(file.uuids['new-moved-id'], ('Renamed', 'Right', 'NewMoved'))
+
+        # 用独立的全量扫描核对对象身份、引用来源与重复次数、UUID，不依赖合并的实现细节。
+        expected = self.scan(root)
+        self.assertEqual(list(file.objects), list(expected.objects))
+        for ref, current in expected.objects.items():
+            self.assertIs(file.objects[ref].xml_obj, current.xml_obj)
+        self.assertEqual(
+            Counter((target, row.owner_ref, id(row.xml_obj)) for target, rows in file.references.items() for row in rows),
+            Counter((target, row.owner_ref, id(row.xml_obj)) for target, rows in expected.references.items() for row in rows),
+        )
+        self.assertEqual(file.uuids, expected.uuids)
+
+    def test_update_node_invalid_descendant_keeps_all_previous_indexes(self):
+        for attribute, value in (('short_name', Text('Bad/Name')), ('uuid', 42), ('child', Reference('relative'))):
+            with self.subTest(attribute=attribute):
+                child = NamedNode(Text('Child'), uuid='child-id', child=Reference('/Shared'))
+                file = self.scan(NamedNode(Text('Package'), uuid='package-id', content=[child]))
+                previous = file.objects, file.references, file.uuids
+                node = file.ref(('Package',))
+                node.xml_obj.short_name.value = 'Renamed'
+                setattr(child, attribute, value)
+
+                with self.assertRaises(ValueError):
+                    file.update_node(node)
+
+                for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
+                    self.assertIs(current, old)
+                self.assertEqual(previous[1][('Shared',)][0].owner_ref, ('Package', 'Child'))
+
+    def test_update_node_uuid_order_handles_reordering_and_removal(self):
+        first = NamedNode(Text('First'), uuid='duplicate')
+        last = NamedNode(Text('Last'), uuid='duplicate')
+        package = NamedNode(Text('Package'), content=[first, last])
+        outside = NamedNode(Text('Outside'), uuid='duplicate')
+        file = self.scan(Container(content=[package, outside]))
+        node = file.ref(('Package',))
+
+        package.content.reverse()
+        file.update_node(node)
+        self.assertEqual(file.uuids['duplicate'], ('Outside',))
+        outside.uuid = ''
+        file.update_node(file.ref(('Outside',)))
+        self.assertEqual(file.uuids['duplicate'], ('Package', 'First'))
+        package.content.remove(first)
+        file.update_node(node)
+        self.assertEqual(file.uuids['duplicate'], ('Package', 'Last'))
+        last.uuid = None
+        file.update_node(node)
+        self.assertNotIn('duplicate', file.uuids)
+
+    def test_update_node_syncs_parent_and_descendant_wrappers(self):
+        child = NamedNode(Text('Child'), uuid='child-id')
+        file = self.scan(NamedNode(Text('Package'), child=child))
+        parent_node = file.ref(('Package',))
+        child_node = file.ref(('Package', 'Child'))
+
+        parent_node.xml_obj.short_name.value = 'Renamed'
+        file.update_node(parent_node)
+        self.assertIs(file.ref(('Renamed',)), parent_node)
+        self.assertEqual(parent_node.ref, ('Renamed',))
+        self.assertIs(file.ref(('Renamed', 'Child')), child_node)
+        self.assertEqual(child_node.ref, ('Renamed', 'Child'))
+        child.short_name.value = 'NewChild'
+        file.update_node(child_node)
+
+        self.assertEqual(list(file.objects), [('Renamed',), ('Renamed', 'NewChild')])
+        self.assertIs(file.ref(('Renamed', 'NewChild')), child_node)
+        self.assertEqual(child_node.ref, ('Renamed', 'NewChild'))
+        self.assertEqual(file.uuids, {'child-id': ('Renamed', 'NewChild')})
+
+        with self.edit(file, parent_node) as obj:
+            obj.short_name.value = 'RenamedAgain'
+        self.assertIs(file.ref(('RenamedAgain',)), parent_node)
+        self.assertEqual(parent_node.ref, ('RenamedAgain',))
+        self.assertIs(file.ref(('RenamedAgain', 'NewChild')), child_node)
+        self.assertEqual(child_node.ref, ('RenamedAgain', 'NewChild'))
