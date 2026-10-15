@@ -305,6 +305,29 @@ class TestScanRef:
         assert file.ref(('Package',)) is None
         assert file.ref(('Renamed',)) is not None
 
+    @pytest.mark.parametrize('target', ['root', 'named', 'child'])
+    def test_edit_without_refresh_only_marks_dirty(self, target):
+        child = Text('before')
+        named = NamedNode(Text('Package'), uuid='package-id', child=child, content=[Reference('/Target')])
+        root = Container(value='before', content=[named])
+        file = self.scan(root)
+        previous = file.index
+        obj = {'root': root, 'named': named, 'child': child}[target]
+        root.value = 'after'
+        child.value = 'after'
+        assert not file._dirty
+
+        with patch.object(file, 'update_node') as update, patch.object(file, '_get_fields') as get_fields:
+            assert obj.edited(refresh_index=False) is obj
+            update.assert_not_called()
+            get_fields.assert_not_called()
+
+        assert file._dirty
+        assert file.index is previous
+        assert file.ref(('Package',)).xml_obj is named
+        assert file.index.references[('Target',)][0].xml_obj is named.content[0]
+        assert file.index.uuids == {'package-id': ('Package',)}
+
     def test_edit_invalid_data_preserves_previous_indexes(self):
         reference = Reference('/Target')
         file = self.scan(NamedNode(Text('Package'), child=reference))

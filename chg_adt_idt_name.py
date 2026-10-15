@@ -30,38 +30,46 @@ def main() -> None:
         ref_interface = obj.ref
         i = obj.xml_obj
         i.short_name.value = f'ADT_{i.short_name.value}'
+        i.edited()
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+            ref_obj.edited()
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationArrayDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
         i.short_name.value = f'ADT_{i.short_name.value}'
+        i.edited()
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+            ref_obj.edited()
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationRecordDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
         i.short_name.value = f'ADT_{i.short_name.value}'
+        i.edited()
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+            ref_obj.edited()
 
     # 修改idt
     for obj in io_arxml.ar(clazz=autosar.ImplementationDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
         i.short_name.value = f'IDT_{i.short_name.value}'
+        i.edited()
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'IDT_{i[-1]}'])
+            ref_obj.edited()
 
     io_arxml.flush_to_file()
 

@@ -104,12 +104,11 @@ for reference in io_arxml.ref_to_ref(target):
 
 ## 修改并保存
 
-**修改涉及具名节点（带 `<SHORT-NAME>` 的节点）或 Ref 类型的引用标签时，必须主动调用 `edited()` 刷新配置，再继续查询或保存。直接赋值或调用 `set_dest()` 不会自动刷新。**
+**修改任何 XML 对象后，都要调用该对象的 `edited()`，再继续查询或保存。直接赋值或调用 `set_dest()` 不会自动刷新。**
 
-- 具名节点：修改名称、UUID，或新增、删除、移动节点后，需要刷新。
-- 引用标签：修改引用目标路径，或新增、删除、替换引用标签后，需要刷新。
+涉及多处关联修改时，先查齐并保存相关节点和引用，完成全部修改后，再统一对修改过的对象调用 `edited()`。避免中途刷新后混用新旧路径，导致后续查询遗漏关联节点或引用。
 
-修改已有对象时，在修改后调用该 XML 对象的 `edited()`；增删、替换或移动节点时，在包含全部变化的共同具名父节点对象上调用 `edited()`。
+增删、替换或移动节点时，在包含全部变化的共同具名父节点对象上调用 `edited()`。
 
 例如，修改节点的 UUID 后刷新并保存：
 
@@ -121,15 +120,25 @@ if node is not None:
     io_arxml.flush_to_file()
 ```
 
-`edited()` 刷新内存中的配置，让后续查询使用修改后的内容；它不会保存文件。完成刷新后，调用 `flush_to_file()` 将修改写回原文件。保存前请备份需要保留的文件。
+`edited(refresh_index=True)` 默认刷新索引并标记文件已修改；如果只修改普通属性，没有改变节点名称、UUID、引用或节点结构，可以调用 `edited(refresh_index=False)`，只标记文件已修改，省去索引刷新：
 
-修改引用目标时，使用 `set_dest()`，随后调用引用对象的 `edited()`：
+```python
+node.xml_obj.s = 'updated-checksum'  # 修改 XML 的 S 校验和属性。
+node.xml_obj.edited(refresh_index=False)
+io_arxml.flush_to_file()
+```
+
+`edited()` 不会保存文件，完成修改并调用后，再用 `flush_to_file()` 将修改写回原文件。保存前请备份需要保留的文件。
+
+修改引用目标时，先查齐引用并使用 `set_dest()` 修改，再统一调用引用对象的 `edited()`：
 
 ```python
 old_target = ('AUTOSAR_Platform', 'BaseTypes', 'uint16')
 new_target = ('AUTOSAR_Platform', 'BaseTypes', 'sint16')
-for reference in io_arxml.ref_to_ref(old_target):
+references = io_arxml.ref_to_ref(old_target)
+for reference in references:
     reference.set_dest(new_target)
+for reference in references:
     reference.xml_obj.edited()
 io_arxml.flush_to_file()
 ```
@@ -149,6 +158,7 @@ if node is not None:
     for reference in references:
         reference.set_dest(new_ref)
 
+    # 目标名称和所有引用都修改完成后，再统一刷新。
     node.xml_obj.edited()
     for reference in references:
         reference.xml_obj.edited()

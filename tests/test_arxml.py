@@ -122,6 +122,25 @@ class TestArxml:
         assert 'new-uuid' not in file.index.uuids
         assert file.index.uuids['second-uuid'] == updated.ref
 
+    def test_edit_without_refresh_saves_plain_attribute_and_clears_dirty(self):
+        document = IOArxml([self.path])
+        file = document.files[self.path]
+        node = file.ar(self.autosar.SwBaseType)[0]
+        previous = file.index
+        node.xml_obj.s = 'updated-checksum'
+        assert node.xml_obj.edited(refresh_index=False) is node.xml_obj
+        assert file.index is previous
+        assert file._dirty
+
+        with patch.object(file, 'save', wraps=file.save) as save:
+            document.flush_to_file()
+            assert not file._dirty
+            document.flush_to_file()
+            save.assert_called_once_with()
+
+        reloaded = ArxmlFile().parse_file(self.path)
+        assert reloaded.ref(node.ref).xml_obj.s == 'updated-checksum'
+
     def test_scan_and_edit_do_not_serialize_content(self):
         document = IOArxml([self.path])
         file = document.files[self.path]

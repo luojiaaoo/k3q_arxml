@@ -72,7 +72,7 @@ class IOArxml:
         return file
 
     def flush_to_file(self) -> None:
-        """仅保存索引更新后尚未回写的文件。"""
+        """仅保存已标记修改且尚未回写的文件。"""
         for file in self.files.values():
             if file._dirty:
                 file.save()

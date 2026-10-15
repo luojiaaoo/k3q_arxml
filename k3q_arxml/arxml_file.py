@@ -50,7 +50,7 @@ class ArxmlFile:
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
         self.index: ArxmlIndex | None = None  # 当前文件的对象、反向引用和 UUID 索引。
-        self._dirty = False  # 索引更新后尚未保存的修改。
+        self._dirty = False  # 已标记但尚未保存的修改。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
         self.root: Autosar  # 当前文件对应的 AUTOSAR 根对象。
@@ -287,8 +287,14 @@ class ArxmlFile:
 
         index = ArxmlIndex()
 
-        def _edited_xml_obj(xml_obj: T) -> T:
-            """向上找到最近的具名节点，更新其索引后返回原对象。"""
+        def _edited_xml_obj(xml_obj: T, refresh_index: bool = True) -> T:
+            """标记文件已修改并返回原对象；默认刷新最近具名节点的索引。
+
+            refresh_index=False 时只设置 dirty 标记，不查找具名祖先或扫描索引。
+            """
+            if not refresh_index:
+                self._dirty = True
+                return xml_obj
             named = xml_obj
             while named is not None and not hasattr(named, 'short_name'):
                 named = named.arxml_parent
