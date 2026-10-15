@@ -33,16 +33,17 @@ class IOArxml:
         finally:
             file.update_node(node)
 
-    def find(self, ref: TupleRef) -> list[ArxmlNamedNode[Any]]:
-        """返回不同文件中具有该路径的所有对象。"""
-        return [obj for file in self.files.values() if (obj := file.ref(ref)) is not None]
-
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
         """查找唯一对象；同路径有多个对象时抛出异常。"""
-        matches = self.find(ref)
-        if len(matches) > 1:
-            raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件')
-        return matches[0] if matches else None
+        match = None
+        for file in self.files.values():
+            obj = file.ref(ref)
+            if obj is None:
+                continue
+            if match is not None:
+                raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件')
+            match = obj
+        return match
 
     def ar(self, clazz: type[T], ref_prefix: TupleRef = ()) -> list[ArxmlNamedNode[T]]:
         return [obj for file in self.files.values() for obj in file.ar(clazz, ref_prefix)]

@@ -248,7 +248,7 @@ class ArxmlTests(unittest.TestCase):
         updated_ref = (*node.ref[:-1], 'Renamed')
         self.assertIs(document.files[self.path].ref(updated_ref).xml_obj, node.xml_obj)
         self.assertIsNone(document.files[other_path].ref(updated_ref))
-        self.assertEqual(document.find(old_ref), [])
+        self.assertIsNone(document.ref(old_ref))
 
     def test_reference_results_preserve_nodes_owners_and_file_identity(self):
         other_path = self.path.with_name('other.arxml')

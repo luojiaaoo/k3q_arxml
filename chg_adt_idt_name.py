@@ -26,38 +26,38 @@ def main() -> None:
     io_arxml = IOArxml(filepaths=args.arxml_files)
 
     # 修改adt
-    for ref_interface in dict.fromkeys(obj.ref for obj in io_arxml.ar(clazz=autosar.ApplicationPrimitiveDataType)):
-        for obj in io_arxml.find(ref_interface):
-            i = obj.xml_obj
-            i.short_name.value = f'ADT_{i.short_name.value}'
+    for obj in io_arxml.ar(clazz=autosar.ApplicationPrimitiveDataType):
+        ref_interface = obj.ref
+        i = obj.xml_obj
+        i.short_name.value = f'ADT_{i.short_name.value}'
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
-    for ref_interface in dict.fromkeys(obj.ref for obj in io_arxml.ar(clazz=autosar.ApplicationArrayDataType)):
-        for obj in io_arxml.find(ref_interface):
-            i = obj.xml_obj
-            i.short_name.value = f'ADT_{i.short_name.value}'
+    for obj in io_arxml.ar(clazz=autosar.ApplicationArrayDataType):
+        ref_interface = obj.ref
+        i = obj.xml_obj
+        i.short_name.value = f'ADT_{i.short_name.value}'
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
-    for ref_interface in dict.fromkeys(obj.ref for obj in io_arxml.ar(clazz=autosar.ApplicationRecordDataType)):
-        for obj in io_arxml.find(ref_interface):
-            i = obj.xml_obj
-            i.short_name.value = f'ADT_{i.short_name.value}'
+    for obj in io_arxml.ar(clazz=autosar.ApplicationRecordDataType):
+        ref_interface = obj.ref
+        i = obj.xml_obj
+        i.short_name.value = f'ADT_{i.short_name.value}'
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
             ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
 
     # 修改idt
-    for ref_interface in dict.fromkeys(obj.ref for obj in io_arxml.ar(clazz=autosar.ImplementationDataType)):
-        for obj in io_arxml.find(ref_interface):
-            i = obj.xml_obj
-            i.short_name.value = f'IDT_{i.short_name.value}'
+    for obj in io_arxml.ar(clazz=autosar.ImplementationDataType):
+        ref_interface = obj.ref
+        i = obj.xml_obj
+        i.short_name.value = f'IDT_{i.short_name.value}'
         for reference in io_arxml.ref_to_ref(ref_interface):
             ref_obj = reference.xml_obj
             i = ref_str2ref(ref_obj.value)
