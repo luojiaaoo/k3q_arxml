@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from .arxml_file import ArxmlFile, ref_str2ref, ref2ref_str
-from .schemas import ArxmlObject, ArxmlReference, Filename, Ref, T
+from .schemas import ArxmlNamedNode, ArxmlRefNode, Filename, Ref, T
 
 
 class IOArxml:
@@ -22,26 +22,26 @@ class IOArxml:
         return self.files[filename.resolve()]
 
     @property
-    def objects(self) -> dict[Ref, list[ArxmlObject[Any]]]:
-        result: dict[Ref, list[ArxmlObject[Any]]] = {}
+    def objects(self) -> dict[Ref, list[ArxmlNamedNode[Any]]]:
+        result: dict[Ref, list[ArxmlNamedNode[Any]]] = {}
         for file in self.files.values():
             for ref, obj in file.objects.items():
                 result.setdefault(ref, []).append(obj)
         return result
 
     @property
-    def references(self) -> dict[Ref, list[ArxmlReference]]:
-        result: dict[Ref, list[ArxmlReference]] = {}
+    def references(self) -> dict[Ref, list[ArxmlRefNode]]:
+        result: dict[Ref, list[ArxmlRefNode]] = {}
         for file in self.files.values():
             for ref, rows in file.references.items():
                 result.setdefault(ref, []).extend(rows)
         return result
 
-    def find(self, ref: Ref) -> list[ArxmlObject[Any]]:
+    def find(self, ref: Ref) -> list[ArxmlNamedNode[Any]]:
         """返回不同文件中具有该路径的所有对象。"""
         return [obj for file in self.files.values() if (obj := file.ref(ref)) is not None]
 
-    def ref(self, ref: Ref, filename: Filename | None = None) -> ArxmlObject[Any] | None:
+    def ref(self, ref: Ref, filename: Filename | None = None) -> ArxmlNamedNode[Any] | None:
         """查找唯一对象；同路径有多个对象时，需指定文件或使用 find()。"""
         if filename is not None:
             return self.get_file(filename).ref(ref)
@@ -50,10 +50,10 @@ class IOArxml:
             raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件，请指定 filename 或使用 find()')
         return matches[0] if matches else None
 
-    def ar(self, clazz: type[T], ref_prefix: Ref = ()) -> list[ArxmlObject[T]]:
+    def ar(self, clazz: type[T], ref_prefix: Ref = ()) -> list[ArxmlNamedNode[T]]:
         return [obj for file in self.files.values() for obj in file.ar(clazz, ref_prefix)]
 
-    def ref_to_ref(self, ref: Ref) -> list[ArxmlReference]:
+    def ref_to_ref(self, ref: Ref) -> list[ArxmlRefNode]:
         """跨所有已加载文件查找指向指定 AUTOSAR 路径的引用节点。
 
         Args:
@@ -61,7 +61,7 @@ class IOArxml:
                 目标对象可以位于其他文件，也可以尚未加载。
 
         Returns:
-            ArxmlReference 列表，无引用时返回空列表。
+            ArxmlRefNode 列表，无引用时返回空列表。
             每项的 .xml_obj 是实际 XML 引用节点，通过 .xml_obj.value 读写目标路径；
             .owner_ref 是包含该引用的最近具名对象的路径，.filename 是引用所在文件路径。
             同一来源对象中的多处引用分别返回，不合并。

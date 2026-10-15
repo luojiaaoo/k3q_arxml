@@ -13,9 +13,9 @@
 
 极简的 ARXML 编辑库，使用 Python、xsdata 和 lxml 实现。
 
-代码分三层：`ArxmlObject` 包装一个节点，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。
+代码分三层：`ArxmlNamedNode` 包装一个节点，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。
 
-项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlObject`、`ArxmlReference` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
+项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlNamedNode`、`ArxmlRefNode` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
 
 ## 安装与生成类型
 
@@ -106,7 +106,7 @@ file = ArxmlFile().parse_file(Path('test/ThrottlePositionControlComposition.arxm
 for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
 
-# 查看指向 uint8 数据类型的引用；每项 ArxmlReference 保存节点包装和来源路径。
+# 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存节点包装和来源路径。
 for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
     node = reference.node
     print(node.xml_obj.value, reference.owner_ref, reference.filename)

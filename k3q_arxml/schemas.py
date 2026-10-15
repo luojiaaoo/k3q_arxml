@@ -45,7 +45,7 @@ class ArxmlHeader(BaseModel):
 
 
 @dataclass
-class ArxmlObject(Generic[T]):
+class ArxmlNamedNode(Generic[T]):
     """一个文件中的一个 ARXML 对象。"""
 
     xml_obj: T
@@ -62,15 +62,15 @@ class ArxmlObject(Generic[T]):
 
 
 @dataclass
-class ArxmlReference:
+class ArxmlRefNode:
     """一处反向引用，保存引用节点包装及其来源位置。
 
     Attributes:
-        node: 包装实际 XML 引用节点的 ArxmlObject，通过 .xml_obj.value 修改引用目标。
+        node: 包装实际 XML 引用节点的 ArxmlNamedNode，通过 .xml_obj.value 修改引用目标。
         owner_ref: 包含该引用的最近具名对象的路径。
     """
 
-    node: ArxmlObject[AutosarRef]
+    node: ArxmlNamedNode[AutosarRef]
     owner_ref: Ref
 
     @property

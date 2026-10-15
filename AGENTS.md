@@ -19,7 +19,7 @@
 | --- | --- |
 | `k3q_arxml/arxml_file.py` | `ArxmlFile`，负责单文件解析、原有引用扫描和回写 |
 | `k3q_arxml/k3q_arxml.py` | `IOArxml`，负责多文件管理和查询汇总 |
-| `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlObject` 和 logger |
+| `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlNamedNode` 和 logger |
 | `k3q_arxml/log.py` | Loguru 的输出、格式和日志级别配置，默认 INFO |
 | `k3q_arxml/__main__.py`、`cli.py` | `python -m k3q_arxml` 的 Click 命令行入口 |
 | `k3q_arxml/schemas.py` | 集中定义 dataclass、Pydantic 模型和类型别名；扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
@@ -59,7 +59,7 @@ uv run python -m k3q_arxml generate 4.2.2
 - 生成文件不存在时，CLI 帮助、版本列表和生成命令必须可用；创建 `IOArxml` 应给出生成指引。
 - `ArxmlFile` 在对象解析前核对文件 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定的 `SCHEMA_VERSION`；版本不一致或缺少声明时抛出 `ValueError`，不自动切换版本。
 - 重新生成其他版本后使用新 Python 进程，避免模块缓存中的旧类型；一个运行进程使用一个版本。
-- `ar(clazz)` 返回 `list[ArxmlObject[T]]`，每项的 `.xml_obj` 保留具体类型。维护这些泛型信息，避免退化为 Any。
+- `ar(clazz)` 返回 `list[ArxmlNamedNode[T]]`，每项的 `.xml_obj` 保留具体类型。维护这些泛型信息，避免退化为 Any。
 
 ### 对象、路径与引用
 
@@ -67,7 +67,7 @@ uv run python -m k3q_arxml generate 4.2.2
 - 文件路径参数 `Filename` 统一为 `Path`；加载、添加和查询时使用 `resolve()` 规范化，文件层保存绝对路径，IO 层按绝对路径去重。`append(filepath)` 加载已有 ARXML 文件，拒绝已加载、不存在或非普通文件的路径；解析成功后才加入管理，添加时不写回文件。
 - 路径使用元组，如 `('Package', 'Type')`；XML 引用使用 `/Package/Type`。使用 `ref_str2ref()` / `ref2ref_str()` 转换。
 - `ref()` 返回唯一包装对象或 None；`ar()` 按具体类型与路径前缀返回对象列表。
-- 每个 `ArxmlObject` 只保存一个 `.xml_obj`，通过 `.file` 关联所属文件。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。
+- 每个 `ArxmlNamedNode` 只保存一个 `.xml_obj`，通过 `.file` 关联所属文件。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。
 - `ref_to_ref()` 返回 `(引用对象, 所在对象路径, 文件名)` 列表。
 - 对象和反向引用索引由各文件维护，IO 层汇总已有索引。修改名称、引用或对象结构后，在依赖新结构查询前重新 `scan_ref()`。
 - 保持最小实现，不顺便增加功能。`ArxmlFile.__scan_arobj_ref()` 是核心扫描函数，本次拆分仅搬移原逻辑，后续修改应控制范围。

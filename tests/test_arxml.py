@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from lxml import etree
 
-from k3q_arxml import ArxmlFile, ArxmlObject, ArxmlReference, IOArxml
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlRefNode, IOArxml
 
 
 class ArxmlTests(unittest.TestCase):
@@ -135,7 +135,7 @@ class ArxmlTests(unittest.TestCase):
         reloaded = ArxmlFile().parse_file(self.path)
         row = reloaded.references[('Network', 'NewTrigger')][0]
         new_target = row.node
-        self.assertIsInstance(new_target, ArxmlObject)
+        self.assertIsInstance(new_target, ArxmlNamedNode)
         self.assertIsInstance(new_target.xml_obj, autosar.TargetIPduRef.TargetIPduRefInner)
         self.assertIs(new_target.file, reloaded)
         self.assertEqual(new_target.ref, row.owner_ref)
@@ -175,9 +175,9 @@ class ArxmlTests(unittest.TestCase):
             expected_count += len(cached)
             for result, row in zip(file_results, cached):
                 self.assertIs(result, row)
-                self.assertIsInstance(result, ArxmlReference)
+                self.assertIsInstance(result, ArxmlRefNode)
                 self.assertTrue(is_dataclass(result))
-                self.assertIsInstance(row.node, ArxmlObject)
+                self.assertIsInstance(row.node, ArxmlNamedNode)
                 self.assertIs(row.node.file, file)
                 self.assertEqual(row.node.ref, row.owner_ref)
                 self.assertIs(result.xml_obj, row.node.xml_obj)

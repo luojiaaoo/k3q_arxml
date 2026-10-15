@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
-from k3q_arxml import ArxmlFile, ArxmlObject, ArxmlReference
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlRefNode
 
 
 @dataclass(slots=True)
@@ -84,9 +84,9 @@ class ScanRefTests(unittest.TestCase):
         rows = file.references[('Types', 'Target')]
         self.assertEqual([row.owner_ref for row in rows], [('Package',), ('Package', 'Child'), ('Package',)])
         for row, expected in zip(rows, (first, second, third), strict=True):
-            self.assertIsInstance(row, ArxmlReference)
+            self.assertIsInstance(row, ArxmlRefNode)
             node = row.node
-            self.assertIsInstance(node, ArxmlObject)
+            self.assertIsInstance(node, ArxmlNamedNode)
             self.assertIs(node.xml_obj, expected)
             self.assertIs(row.xml_obj, expected)
             self.assertIs(node.file, file)
@@ -145,7 +145,7 @@ class ScanRefTests(unittest.TestCase):
 
         self.assertIsNone(file.ref(('Package', 'Old')))
         self.assertIs(file.ref(('Package', 'New')).xml_obj, target)
-        self.assertEqual(file.references, {('Package', 'New'): [ArxmlReference(ArxmlObject(reference, file, ('Package',)), ('Package',))]})
+        self.assertEqual(file.references, {('Package', 'New'): [ArxmlRefNode(ArxmlNamedNode(reference, file, ('Package',)), ('Package',))]})
         self.assertEqual(file.uuids, {'target-id': ('Package', 'New')})
 
     def test_invalid_references_report_location_and_keep_previous_indexes(self):
@@ -185,7 +185,7 @@ class ScanRefTests(unittest.TestCase):
     def test_wrapper_failure_does_not_publish_partial_indexes(self):
         file = self.scan(NamedNode(Text('Package'), uuid='package-id'))
         previous = file.objects, file.references, file.uuids
-        with patch('k3q_arxml.arxml_file.ArxmlObject', side_effect=RuntimeError('wrapper failure')):
+        with patch('k3q_arxml.arxml_file.ArxmlNamedNode', side_effect=RuntimeError('wrapper failure')):
             with self.assertRaisesRegex(RuntimeError, 'wrapper failure'):
                 file.scan_ref()
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
@@ -210,7 +210,7 @@ class ScanRefTests(unittest.TestCase):
     def test_reference_record_failure_keeps_previous_indexes(self):
         file = self.scan(Container(value=Reference('/Target')))
         previous = file.objects, file.references, file.uuids
-        with patch('k3q_arxml.arxml_file.ArxmlReference', side_effect=RuntimeError('reference record failure')):
+        with patch('k3q_arxml.arxml_file.ArxmlRefNode', side_effect=RuntimeError('reference record failure')):
             with self.assertRaisesRegex(RuntimeError, 'reference record failure'):
                 file.scan_ref()
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
@@ -219,7 +219,7 @@ class ScanRefTests(unittest.TestCase):
     def test_reference_wrapper_failure_keeps_previous_indexes(self):
         file = self.scan(Container(value=Reference('/Target')))
         previous = file.objects, file.references, file.uuids
-        with patch('k3q_arxml.arxml_file.ArxmlObject', side_effect=RuntimeError('reference wrapper failure')):
+        with patch('k3q_arxml.arxml_file.ArxmlNamedNode', side_effect=RuntimeError('reference wrapper failure')):
             with self.assertRaisesRegex(RuntimeError, 'reference wrapper failure'):
                 file.scan_ref()
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
