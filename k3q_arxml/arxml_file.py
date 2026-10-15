@@ -15,7 +15,7 @@ from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .log import logger
-from .schemas import ArxmlFormat, ArxmlHeader, ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef, Uuid
+from .schemas import ArxmlFormat, ArxmlHeader, ArxmlIndex, ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
 
 try:
     from .autosar import SCHEMA_VERSION, Autosar
@@ -49,9 +49,7 @@ class ArxmlFile:
         self.parse_schema_version = SCHEMA_VERSION  # 当前绑定用于解析的 AUTOSAR 版本。
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
-        self.objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
-        self.references: dict[TupleRef, list[ArxmlRefNode]] = {}  # 按目标路径索引的引用节点，包含所在文件和来源路径。
-        self.uuids: dict[Uuid, TupleRef] = {}  # 按 UUID 索引的对象路径。
+        self.index: ArxmlIndex | None = None  # 当前文件的对象、反向引用和 UUID 索引。
         self._dirty = False  # 索引更新后尚未保存的修改。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
@@ -138,7 +136,7 @@ class ArxmlFile:
         扫描及包装全部成功后统一替换索引；失败时保留原索引，不撤销 XML 对象修改。
         """
         assert self.filepath is not None
-        self.objects, self.references, self.uuids = self.__scan_arobj_ref(self.root)
+        self.index = self.__scan_arobj_ref(self.root)
 
     def update_node(self, node: ArxmlNamedNode[Any]) -> None:
         """加载完成后，增量更新 node 及其整棵子树的对象、反向引用和 UUID 索引。
@@ -159,44 +157,42 @@ class ArxmlFile:
             return ref[: len(old_ref)] == old_ref
 
         # 2. 用旧父路径扫描修改后的整棵子树，新的 SHORT-NAME 由扫描器追加。
-        objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=node.xml_obj.arxml_parent)
+        scanned = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=node.xml_obj.arxml_parent)
 
         # 3. 检查新路径是否占用了其他分支，并在旧位置插入整棵新子树。
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
-        for ref in objects:
-            if ref in self.objects and not in_old_subtree(ref):
+        for ref in scanned.objects:
+            if ref in self.index.objects and not in_old_subtree(ref):
                 raise ValueError(f'{self.filepath}: 路径 {ref2ref_str(ref)} 与其他分支冲突')
-        merged_objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
-        for ref, current in self.objects.items():
+        merged = ArxmlIndex()
+        for ref, current in self.index.objects.items():
             if ref == old_ref:
-                merged_objects.update(objects)
+                merged.objects.update(scanned.objects)
             elif not in_old_subtree(ref):
-                merged_objects[ref] = current
+                merged.objects[ref] = current
 
         # 4. 按来源路径移除旧子树的引用，不能按目标路径删除，否则会丢失外部入向引用。
         # 创建新的列表，避免后续步骤失败时已经改动旧索引；空的目标分组不保留。
-        merged_references: dict[TupleRef, list[ArxmlRefNode]] = {}
-        for target_ref, rows in self.references.items():
+        for target_ref, rows in self.index.references.items():
             retained = [row for row in rows if not in_old_subtree(row.owner_ref)]
             if retained:
-                merged_references[target_ref] = retained
-        for target_ref, rows in references.items():
-            merged_references.setdefault(target_ref, []).extend(rows)
+                merged.references[target_ref] = retained
+        for target_ref, rows in scanned.references.items():
+            merged.references.setdefault(target_ref, []).extend(rows)
 
         # 5. 在原子树位置合入新 UUID，其他对象按原顺序登记，保持后出现者覆盖前者。
         # 不能只删除旧 UUID 再 update：删除重复 UUID 的最后一个对象时，需要恢复前一个。
-        merged_uuids: dict[Uuid, TupleRef] = {}
-        for ref, current in self.objects.items():
+        for ref, current in self.index.objects.items():
             if ref == old_ref:
-                merged_uuids.update(uuids)
+                merged.uuids.update(scanned.uuids)
             elif not in_old_subtree(ref):
                 uuid = getattr(current.xml_obj, 'uuid', None)
                 if uuid is not None and uuid != '':
-                    merged_uuids[uuid] = ref
+                    merged.uuids[uuid] = ref
 
         # 6. 全部成功后同步传入节点的路径并发布三份索引。
         node.ref = (*old_ref[:-1], node.short_name)
-        self.objects, self.references, self.uuids = merged_objects, merged_references, merged_uuids
+        self.index = merged
         self._dirty = True
 
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
@@ -212,7 +208,7 @@ class ArxmlFile:
 
         直接修改节点后，调用 node.xml_obj.edited() 增量更新索引再查询。
         """
-        return self.objects.get(ref)
+        return self.index.objects.get(ref)
 
     def ar(self, clazz: type[T], ref_prefix: TupleRef = ()) -> list[ArxmlNamedNode[T]]:
         """按 XML 对象类型和路径前缀查询当前文件中的对象。
@@ -231,7 +227,7 @@ class ArxmlFile:
         """
         matches: list[ArxmlNamedNode[T]] = []
         prefix_length = len(ref_prefix)
-        for ref, node in self.objects.items():
+        for ref, node in self.index.objects.items():
             if ref[:prefix_length] != ref_prefix:
                 continue
             if not isinstance(node.xml_obj, clazz):
@@ -271,15 +267,15 @@ class ArxmlFile:
         obj: Any,
         parent_ref: TupleRef = (),
         parent_obj: Any = None,
-    ) -> tuple[dict[TupleRef, ArxmlNamedNode[Any]], dict[TupleRef, list[ArxmlRefNode]], dict[Uuid, TupleRef]]:
-        """遍历 dataclass 声明字段，返回包装好的对象、反向引用和 UUID 三组索引。
+    ) -> ArxmlIndex:
+        """遍历 dataclass 声明字段，将三组索引统一作为 ArxmlIndex 返回。
 
         只扫描传入 obj 的子树并返回结果，不直接修改文件索引。scan_ref() 传入 root 做全量初始化，
         update_node() 传入 node.xml_obj 和旧父路径做局部扫描，再将结果合入现有索引。
         遇到具名对象时直接创建 ArxmlNamedNode，包装的 ref 使用本次扫描得到的路径。
         路径只追加 SHORT-NAME，无名容器沿用父路径。
         例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
-            references[('Types', 'Speed')] = [ArxmlRefNode(xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
+            index.references[('Types', 'Speed')] = [ArxmlRefNode(xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
         记录的 .xml_obj 保留原引用节点，可通过 .xml_obj.value 修改引用并回写；这里只登记目标路径，
         不查找目标对象，也不沿引用跳到其他对象。
 
@@ -289,9 +285,7 @@ class ArxmlFile:
 
         assert self.filepath is not None
 
-        objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
-        references: dict[TupleRef, list[ArxmlRefNode]] = {}
-        uuids: dict[Uuid, TupleRef] = {}
+        index = ArxmlIndex()
 
         def _edited_xml_obj(xml_obj: T) -> T:
             """向上找到最近的具名节点，更新其索引后返回原对象。"""
@@ -300,7 +294,7 @@ class ArxmlFile:
                 named = named.arxml_parent
             if named is None:
                 raise ValueError('当前节点没有具名祖先，无法增量更新索引')
-            self.update_node(next(wrapped for wrapped in self.objects.values() if wrapped.xml_obj is named))
+            self.update_node(next(wrapped for wrapped in self.index.objects.values() if wrapped.xml_obj is named))
             return xml_obj
 
         def _object_ref(node: Any, ref: TupleRef) -> TupleRef:
@@ -313,13 +307,13 @@ class ArxmlFile:
             # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
             named_ref = (*ref, name)
             # 在登记对象时直接完成包装，调用方无需再次转换 objects。
-            objects[named_ref] = ArxmlNamedNode(xml_obj=node, ref=named_ref)
+            index.objects[named_ref] = ArxmlNamedNode(xml_obj=node, ref=named_ref)
             uuid = getattr(node, 'uuid', None)
             # UUID 是可选属性；缺失 UUID 的节点仍登记在 objects 中。
             if uuid is not None and uuid != '':
                 if not isinstance(uuid, str):
                     raise ValueError(f'{self.filepath}: {ref2ref_str(named_ref)} ({type(node).__qualname__}.uuid): UUID 必须是字符串')
-                uuids[uuid] = named_ref
+                index.uuids[uuid] = named_ref
             return named_ref
 
         def _add_reference(node: Ref, ref: TupleRef) -> None:
@@ -335,7 +329,7 @@ class ArxmlFile:
                 raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
             # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
             # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
-            references.setdefault(target_ref, []).append(ArxmlRefNode(xml_obj=node, owner_ref=ref))
+            index.references.setdefault(target_ref, []).append(ArxmlRefNode(xml_obj=node, owner_ref=ref))
 
         def _scan(node: Any, ref: TupleRef, parent: Any) -> None:
             if isinstance(node, (list, tuple)):
@@ -377,4 +371,4 @@ class ArxmlFile:
                     _scan(value, ref, node)
 
         _scan(obj, parent_ref, parent_obj)
-        return objects, references, uuids
+        return index

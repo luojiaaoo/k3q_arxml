@@ -107,7 +107,7 @@ print(io_arxml.ref(result.ref).xml_obj.uuid)  # 再次查询可读到新 UUID。
 
 使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件；重复加载同一文件或与已加载文件存在相同对象路径时抛出异常，文件不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
 
-对象、引用和 UUID 索引保存在各个 `ArxmlFile` 中，通过 `io_arxml.files[Path('文件路径').resolve()]` 获取对应文件后访问 `file.objects`、`file.references` 和 `file.uuids`。跨文件查询使用 `io_arxml.ar()`、`io_arxml.ref()` 和 `io_arxml.ref_to_ref()`。
+对象、引用和 UUID 索引由 `ArxmlIndex` 数据类统一保存。通过 `io_arxml.files[Path('文件路径').resolve()]` 获取对应文件后，访问 `file.index.objects`、`file.index.references` 和 `file.index.uuids`。跨文件查询使用 `io_arxml.ar()`、`io_arxml.ref()` 和 `io_arxml.ref_to_ref()`。
 
 `io_arxml.ref(path)` 返回唯一对象或 None，发现多个匹配时抛出异常。查询指定文件时，使用 `io_arxml.files[Path('文件路径').resolve()].ref(path)`。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
 
@@ -123,7 +123,7 @@ for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
 
 # 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存实际引用节点和来源路径。
-for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
+for reference in file.index.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
     print(reference.xml_obj.value, reference.owner_ref)
     # owner_ref 是包含该引用的具名对象路径；修改引用后，调用 reference.xml_obj.edited() 更新索引。
 

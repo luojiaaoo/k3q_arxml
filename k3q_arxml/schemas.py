@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Generic, Tuple, TypeAlias, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, Tuple, TypeAlias, TypeVar, cast
 
 from pydantic import BaseModel
 from xsdata.formats.dataclass.models.generics import DerivedElement
@@ -94,6 +94,15 @@ class ArxmlRefNode(ArxmlNode['Ref']):
         from .arxml_file import ref2ref_str
 
         self.xml_obj.value = ref2ref_str(ref)
+
+
+@dataclass
+class ArxmlIndex:
+    """统一保存单个文件或扫描子树的对象、反向引用和 UUID 索引。"""
+
+    objects: dict[TupleRef, ArxmlNamedNode[Any]] = field(default_factory=dict)  # 按 AUTOSAR 路径索引的对象。
+    references: dict[TupleRef, list[ArxmlRefNode]] = field(default_factory=dict)  # 按目标路径索引的引用节点及其来源路径。
+    uuids: dict[Uuid, TupleRef] = field(default_factory=dict)  # 按 UUID 索引的对象路径。
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent

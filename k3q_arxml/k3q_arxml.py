@@ -50,7 +50,7 @@ class IOArxml:
         修改引用后调用 .xml_obj.edited()，更新最近具名节点的索引后再查询。
         直接修改后，对该具名节点调用所属文件的 update_node() 增量更新索引。
         """
-        return [row for file in self.files.values() for row in file.references.get(ref, [])]
+        return [row for file in self.files.values() for row in file.index.references.get(ref, [])]
 
     def append(self, filepath: Filepath) -> ArxmlFile:
         """加载已有的 ARXML 文件并加入管理，拒绝重复文件及跨文件对象路径；不写回文件。"""
@@ -64,9 +64,9 @@ class IOArxml:
         if not filepath.is_file():
             raise ValueError(f'{filepath} 不是普通文件')
         file = ArxmlFile().parse_file(filepath)
-        for ref in file.objects:
+        for ref in file.index.objects:
             for loaded_file in self.files.values():
-                if ref in loaded_file.objects:
+                if ref in loaded_file.index.objects:
                     raise ValueError(f'{ref2ref_str(ref)} 同时存在于 {loaded_file.filepath} 和 {filepath}')
         self.files[filepath] = file
         return file
