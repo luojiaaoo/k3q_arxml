@@ -64,11 +64,11 @@ uv run python -m k3q_arxml generate 4.2.2
 ### 对象、路径与引用
 
 - `IOArxml(filepaths=[...])` 为每个文件创建 `ArxmlFile`；文件层解析后调用一次 `scan_ref()`，全量建立初始索引。后续编辑通过 `update_node()` 增量维护。单文件也可以直接使用 `ArxmlFile`。
-- 文件路径参数 `Filepath` 统一为 `Path`；加载、添加和查询时使用 `resolve()` 规范化，文件层保存绝对路径，IO 层按绝对路径去重。`append(filepath)` 加载已有 ARXML 文件，拒绝已加载、不存在或非普通文件的路径；解析成功后才加入管理，添加时不写回文件。
+- 文件路径参数 `Filepath` 统一为 `Path`；加载、添加和查询时使用 `resolve()` 规范化，文件层保存绝对路径，IO 层按绝对路径去重。`append(filepath)` 加载已有 ARXML 文件，拒绝已加载、不存在或非普通文件的路径，以及与已加载文件重复的对象路径；解析并检查成功后才加入管理，添加时不写回文件。
 - 路径使用元组，如 `('Package', 'Type')`；XML 引用使用 `/Package/Type`。使用 `ref_str2ref()` / `ref2ref_str()` 转换。
 - `ref()` 返回唯一包装对象或 None；`ar()` 按具体类型与路径前缀返回对象列表。
-- 每个 `ArxmlNamedNode` 保存实际 XML 对象 `.xml_obj`、索引路径 `.ref` 和所属文件路径 `.filepath`；需要文件对象时使用 `IOArxml.get_file(node.filepath)`。每次扫描直接创建新包装，增量更新成功后同步传入 `node` 的 `.ref`；后续编辑子节点时重新查询其包装。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。
-- `ref_to_ref()` 返回 `ArxmlRefNode` 列表，每项通过 `.xml_obj`、`.owner_ref` 和 `.filepath` 保存引用对象及来源位置。
+- 每个 `ArxmlNamedNode` 保存实际 XML 对象 `.xml_obj`、索引路径 `.ref` 和所属文件路径 `.filepath`；需要文件对象时使用 `io_arxml.files[node.filepath]`。每次扫描直接创建新包装，增量更新成功后同步传入 `node` 的 `.ref`；后续编辑子节点时重新查询其包装。`IOArxml.find()` 返回匹配列表，正常加载后同一路径最多匹配一个对象；查询指定文件时用 `io_arxml.files[filepath.resolve()].ref(ref)`；`IOArxml.ref()` 发现多个匹配时抛出异常。
+- `ref_to_ref()` 返回 `ArxmlRefNode` 列表，每项通过 `.xml_obj`、`.owner_ref` 和 `.filepath` 保存引用对象及来源位置；`set_dest(路径元组)` 使用 `ref2ref_str()` 转换并修改引用节点的目标路径文本，后续仍需更新具名祖先索引并保存文件。
 - 对象、反向引用和 UUID 索引由各文件维护，直接访问 `file.objects`、`file.references` 和 `file.uuids`。IO 层通过 `ref()`、`find()`、`ar()`、`ref_to_ref()` 汇总查询结果，不提供 `objects` / `references` 汇总属性。常规流程是加载时全量初始化一次，后续调用 `IOArxml.edit(node)` 自动增量更新，或直接修改 `node.xml_obj` 后调用 `file.update_node(node)`，完成后再查询新结构。
 - `scan_ref()` 从 `root` 生成全部包装和初始索引，不为初始化添加读取旧索引或复用旧包装的逻辑。`update_node()` 只扫描传入节点的整棵子树，并清理、合并三份索引；增删、替换或移动编辑根本身时，传入包含全部变化的共同具名祖先。
 - 编辑接口信任当前文件查询返回的有效包装，不重复添加类型、文件归属、对象身份或过期校验。

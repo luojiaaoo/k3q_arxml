@@ -228,7 +228,15 @@ class ArxmlFile:
 
         直接修改节点后，调用 update_node(node) 增量更新索引再查询；使用 IOArxml.edit() 时退出后自动完成。
         """
-        return [cast(ArxmlNamedNode[T], obj) for ref, obj in self.objects.items() if ref[: len(ref_prefix)] == ref_prefix and isinstance(obj.xml_obj, clazz)]
+        matches: list[ArxmlNamedNode[T]] = []
+        prefix_length = len(ref_prefix)
+        for ref, node in self.objects.items():
+            if ref[:prefix_length] != ref_prefix:
+                continue
+            if not isinstance(node.xml_obj, clazz):
+                continue
+            matches.append(cast(ArxmlNamedNode[T], node))
+        return matches
 
     def save(self) -> None:
         if self.header is None:

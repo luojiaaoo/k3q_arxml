@@ -84,12 +84,18 @@ class ArxmlRefNode(ArxmlNode['Ref']):
     """一处反向引用，保存实际 XML 引用节点及其来源位置。
 
     Attributes:
-        xml_obj: 实际 XML 引用节点，通过 .xml_obj.value 修改引用目标。
+        xml_obj: 实际 XML 引用节点，通过 .xml_obj.value 或 set_dest() 修改引用目标路径。
         filepath: 引用所在文件的路径。
         owner_ref: 包含该引用的最近具名对象的路径。
     """
 
     owner_ref: TupleRef
+
+    def set_dest(self, ref: TupleRef) -> None:
+        """将目标路径元组转换为 XML 引用路径，写入实际引用节点。"""
+        from .arxml_file import ref2ref_str
+
+        self.xml_obj.value = ref2ref_str(ref)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent

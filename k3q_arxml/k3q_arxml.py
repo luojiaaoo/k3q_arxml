@@ -19,9 +19,6 @@ class IOArxml:
             if filepath not in self.files:
                 self.append(filepath)
 
-    def get_file(self, filename: Filepath) -> ArxmlFile:
-        return self.files[filename.resolve()]
-
     @contextmanager
     def edit(self, node: ArxmlNamedNode[T]) -> Iterator[T]:
         """以任意具名节点为根编辑 XML 对象，退出时调用文件层 update_node() 增量更新索引。
@@ -40,13 +37,11 @@ class IOArxml:
         """返回不同文件中具有该路径的所有对象。"""
         return [obj for file in self.files.values() if (obj := file.ref(ref)) is not None]
 
-    def ref(self, ref: TupleRef, filename: Filepath | None = None) -> ArxmlNamedNode[Any] | None:
-        """查找唯一对象；同路径有多个对象时，需指定文件或使用 find()。"""
-        if filename is not None:
-            return self.get_file(filename).ref(ref)
+    def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
+        """查找唯一对象；同路径有多个对象时抛出异常。"""
         matches = self.find(ref)
         if len(matches) > 1:
-            raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件，请指定 filename 或使用 find()')
+            raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件')
         return matches[0] if matches else None
 
     def ar(self, clazz: type[T], ref_prefix: TupleRef = ()) -> list[ArxmlNamedNode[T]]:
@@ -62,6 +57,7 @@ class IOArxml:
         Returns:
             ArxmlRefNode 列表，无引用时返回空列表。
             每项的 .xml_obj 是实际 XML 引用节点，通过 .xml_obj.value 读写目标路径；
+            使用 .set_dest(路径元组) 修改该引用节点的目标路径；
             .owner_ref 是包含该引用的最近具名对象的路径，.filepath 是引用所在文件路径。
             同一来源对象中的多处引用分别返回，不合并。
 
@@ -71,7 +67,7 @@ class IOArxml:
         return [row for file in self.files.values() for row in file.references.get(ref, [])]
 
     def append(self, filepath: Filepath) -> ArxmlFile:
-        """加载已有的 ARXML 文件并加入管理，拒绝重复路径；不写回文件。"""
+        """加载已有的 ARXML 文件并加入管理，拒绝重复文件及跨文件对象路径；不写回文件。"""
         filepath = filepath.resolve()
         if filepath in self.files:
             raise ValueError(f'{filepath} 已加载，不能重复添加')
@@ -82,6 +78,10 @@ class IOArxml:
         if not filepath.is_file():
             raise ValueError(f'{filepath} 不是普通文件')
         file = ArxmlFile().parse_file(filepath)
+        for ref in file.objects:
+            for loaded_file in self.files.values():
+                if ref in loaded_file.objects:
+                    raise ValueError(f'{ref2ref_str(ref)} 同时存在于 {loaded_file.filepath} 和 {filepath}')
         self.files[filepath] = file
         return file
 

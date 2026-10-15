@@ -34,10 +34,20 @@ class ArxmlTests(unittest.TestCase):
         logger_patch.start()
         self.addCleanup(logger_patch.stop)
 
+    @staticmethod
+    def _rename_root_packages(tree):
+        for name in tree.xpath('/ar:AUTOSAR/ar:AR-PACKAGES/ar:AR-PACKAGE/ar:SHORT-NAME', namespaces={'ar': 'http://autosar.org/schema/r4.0'}):
+            name.text += '_Other'
+
+    def _copy_with_distinct_paths(self, path):
+        tree = etree.parse(self.path)
+        self._rename_root_packages(tree)
+        tree.write(path, encoding='utf-8', xml_declaration=True)
+
     def test_native_module_and_round_trip_preserve_objects_and_references(self):
         self.assertIsInstance(self.autosar, ModuleType)
         original = IOArxml([self.path])
-        file = original.get_file(self.path)
+        file = original.files[self.path]
         paths = set(file.objects)
         references = {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in file.references.items()}
         self.assertTrue(paths)
@@ -45,7 +55,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(file.parse_schema_version, '4.2.2')
         self.assertEqual(file.header.file_schema_version, '4.2.2')
         original.flush_to_file()
-        reloaded = IOArxml([self.path]).get_file(self.path)
+        reloaded = IOArxml([self.path]).files[self.path]
         self.assertEqual(set(reloaded.objects), paths)
         self.assertEqual({ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in reloaded.references.items()}, references)
         self.assertEqual(reloaded.root, file.root)
@@ -53,7 +63,7 @@ class ArxmlTests(unittest.TestCase):
 
     def test_named_node_edit_refreshes_indexes_and_content(self):
         document = IOArxml([self.path])
-        file = document.get_file(self.path)
+        file = document.files[self.path]
         node = file.ar(self.autosar.SwBaseType)[0]
         ref = node.ref
         original_content = node.content
@@ -82,7 +92,7 @@ class ArxmlTests(unittest.TestCase):
 
     def test_scan_and_edit_do_not_serialize_content(self):
         document = IOArxml([self.path])
-        file = document.get_file(self.path)
+        file = document.files[self.path]
         with patch('k3q_arxml.schemas.XmlSerializer', side_effect=RuntimeError('unexpected serialization')):
             file.scan_ref()
             with document.edit(file.ar(self.autosar.SwBaseType)[0]) as obj:
@@ -110,12 +120,11 @@ class ArxmlTests(unittest.TestCase):
                 document = IOArxml(iter(aliases))
             self.assertEqual(parse.call_count, 1)
             self.assertEqual(list(document.files), [self.path])
-            file = document.get_file(self.path)
+            file = document.files[self.path]
             for alias in aliases:
-                self.assertIs(document.get_file(alias), file)
+                self.assertIs(document.files[alias.resolve()], file)
             ref = next(iter(file.objects))
             self.assertIs(document.ref(ref), file.ref(ref))
-            self.assertIs(document.ref(ref, filename=Path('sample.arxml')), file.ref(ref))
             self.assertIsInstance(file.filepath, Path)
             self.assertEqual(file.ref(ref).filepath, self.path)
             with document.edit(file.ar(self.autosar.SwBaseType)[0]) as obj:
@@ -127,10 +136,10 @@ class ArxmlTests(unittest.TestCase):
 
     def test_flush_saves_only_updated_files_and_retries_failed_save(self):
         other_path = self.path.with_name('other.arxml')
-        copy2(self.path, other_path)
+        self._copy_with_distinct_paths(other_path)
         document = IOArxml([self.path, other_path])
-        first = document.get_file(self.path)
-        second = document.get_file(other_path)
+        first = document.files[self.path]
+        second = document.files[other_path]
 
         with patch.object(first, 'save', wraps=first.save) as first_save, patch.object(second, 'save', wraps=second.save) as second_save:
             document.flush_to_file()
@@ -166,17 +175,17 @@ class ArxmlTests(unittest.TestCase):
 
     def test_append_resolves_paths_and_rejects_loaded_aliases(self):
         document = IOArxml([self.path])
-        original = document.get_file(self.path)
+        original = document.files[self.path]
         original.format.leading_comments = '<!-- unsaved edit -->'
         other_path = self.path.with_name('other.arxml')
-        copy2(self.path, other_path)
+        self._copy_with_distinct_paths(other_path)
         with chdir(self.temporary.name):
             with self.assertRaisesRegex(ValueError, '已加载'):
                 document.append(Path('sample.arxml'))
             added = document.append(Path('other.arxml'))
-            self.assertIs(document.get_file(Path('other.arxml')), added)
+            self.assertIs(document.files[Path('other.arxml').resolve()], added)
 
-        self.assertIs(document.get_file(self.path), original)
+        self.assertIs(document.files[self.path], original)
         self.assertEqual(original.format.leading_comments, '<!-- unsaved edit -->')
         self.assertEqual(added.filepath, other_path)
         self.assertIs(document.files[added.filepath], added)
@@ -214,44 +223,38 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(row.owner_ref, ('Package', 'Gateway'))
         self.assertEqual(len(reloaded.references[('Network', 'Trigger')]), 1)
 
-    def test_shared_paths_keep_separate_objects_and_file_identity(self):
+    def test_shared_paths_reject_second_file_without_changing_loaded_files(self):
         other_path = self.path.with_name('other.arxml')
         copy2(self.path, other_path)
-        document = IOArxml([self.path, other_path])
-        packages = document.ar(self.autosar.ArPackage)
-        self.assertTrue(packages)
-        matches = document.find(packages[0].ref)
-        self.assertEqual([obj.filepath for obj in matches], [self.path, other_path])
-        self.assertTrue(all(isinstance(obj.xml_obj, self.autosar.ArPackage) for obj in matches))
-        self.assertIsNot(matches[0].xml_obj, matches[1].xml_obj)
-        self.assertTrue(all(isinstance(obj, ArxmlNode) for obj in matches))
-        self.assertIs(document.ref(packages[0].ref, filename=self.path), matches[0])
-        with self.assertRaises(ValueError):
-            document.ref(packages[0].ref)
-        self.assertIsNone(document.ref(('Missing',)))
-        self.assertEqual(document.find(('Missing',)), [])
+        document = IOArxml([self.path])
+        first = document.files[self.path]
+        with self.assertRaisesRegex(ValueError, '/AUTOSAR_Platform'):
+            document.append(other_path)
+        self.assertEqual(document.files, {self.path: first})
+        with self.assertRaisesRegex(ValueError, '/AUTOSAR_Platform'):
+            IOArxml([self.path, other_path])
 
     def test_io_queries_observe_node_edit_in_its_owning_file(self):
         other_path = self.path.with_name('other.arxml')
-        copy2(self.path, other_path)
+        self._copy_with_distinct_paths(other_path)
         document = IOArxml([self.path, other_path])
-        node = document.get_file(self.path).ar(self.autosar.SwBaseType)[0]
+        node = document.files[self.path].ar(self.autosar.SwBaseType)[0]
         old_ref = node.ref
-        other = document.get_file(other_path)
+        other = document.files[other_path]
         with patch.object(other, 'scan_ref') as other_scan:
             with document.edit(node) as obj:
                 obj.short_name.value = 'Renamed'
             other_scan.assert_not_called()
         updated_ref = (*node.ref[:-1], 'Renamed')
-        self.assertIs(document.ref(updated_ref, filename=self.path).xml_obj, node.xml_obj)
-        self.assertIsNone(document.ref(updated_ref, filename=other_path))
-        self.assertEqual([result.filepath for result in document.find(old_ref)], [other_path])
+        self.assertIs(document.files[self.path].ref(updated_ref).xml_obj, node.xml_obj)
+        self.assertIsNone(document.files[other_path].ref(updated_ref))
+        self.assertEqual(document.find(old_ref), [])
 
     def test_reference_results_preserve_nodes_owners_and_file_identity(self):
         other_path = self.path.with_name('other.arxml')
-        copy2(self.path, other_path)
+        self._copy_with_distinct_paths(other_path)
         document = IOArxml([self.path, other_path])
-        ref = next(iter(document.get_file(self.path).references))
+        ref = next(iter(document.files[self.path].references))
         results = document.ref_to_ref(ref)
         expected_count = 0
 
@@ -274,15 +277,42 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual({result.filepath for result in results}, {self.path, other_path})
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
+    def test_reference_target_edit_round_trips(self):
+        file = ArxmlFile().parse_file(self.path)
+        target_ref, reference = next(
+            (target_ref, row)
+            for target_ref, rows in file.references.items()
+            for row in rows
+            if isinstance(getattr(row.xml_obj, 'dest', None), self.autosar.DataPrototypeSubtypesEnum)
+        )
+        updated_ref = (*target_ref[:-1], target_ref[-1] + '_New')
+        original_dest = reference.xml_obj.dest
+        reference.set_dest(updated_ref)
+        self.assertEqual(reference.xml_obj.value, ref2ref_str(updated_ref))
+        self.assertIs(reference.xml_obj.dest, original_dest)
+
+        owner = file.ref(reference.owner_ref)
+        assert owner is not None
+        file.update_node(owner)
+        file.save()
+
+        reloaded = ArxmlFile().parse_file(self.path)
+        self.assertTrue(any(row.owner_ref == reference.owner_ref and row.xml_obj.value == ref2ref_str(updated_ref) for row in reloaded.references[updated_ref]))
+
+        plain_reference = ArxmlRefNode(filepath=self.path, xml_obj=self.autosar.Ref(value='/Target'), owner_ref=())
+        plain_reference.set_dest(('Other', 'Target'))
+        self.assertEqual(plain_reference.xml_obj.value, '/Other/Target')
+
     def test_rename_updates_definition_and_references_incrementally(self):
         other_path = self.path.with_name('references.arxml')
         tree = etree.parse(self.path)
         base_types = tree.xpath('//ar:AR-PACKAGE[ar:SHORT-NAME="BaseTypes"]', namespaces={'ar': 'http://autosar.org/schema/r4.0'})[0]
         base_types.getparent().remove(base_types)
+        self._rename_root_packages(tree)
         tree.write(other_path, encoding='utf-8', xml_declaration=True)
         document = IOArxml([self.path, other_path])
         ref = ('AUTOSAR_Platform', 'BaseTypes', 'float32')
-        self.assertIsNone(document.get_file(other_path).ref(ref))
+        self.assertIsNone(document.files[other_path].ref(ref))
         self.assertEqual({row.filepath for row in document.ref_to_ref(ref)}, {self.path, other_path})
         target = document.ref(ref)
         assert target is not None
@@ -290,10 +320,10 @@ class ArxmlTests(unittest.TestCase):
         references = document.ref_to_ref(ref)
         target.xml_obj.short_name.value = updated_ref[-1]
         for reference in references:
-            reference.xml_obj.value = ref2ref_str(updated_ref)
-        document.get_file(target.filepath).update_node(target)
+            reference.set_dest(updated_ref)
+        document.files[target.filepath].update_node(target)
         for filepath, owner_ref in {(reference.filepath, reference.owner_ref) for reference in references}:
-            file = document.get_file(filepath)
+            file = document.files[filepath]
             owner = file.ref(owner_ref)
             assert owner is not None
             file.update_node(owner)
@@ -347,7 +377,7 @@ class ArxmlTests(unittest.TestCase):
 
         file = document.append(self.path)
 
-        self.assertIs(document.get_file(self.path), file)
+        self.assertIs(document.files[self.path], file)
         self.assertTrue(file.objects)
         self.assertTrue(file.references)
         self.assertEqual(self.path.read_bytes(), original_content)

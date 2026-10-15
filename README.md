@@ -85,7 +85,7 @@ io_arxml.print(print_filepath=Path('model.txt'))
 
 1. `autosar.SwBaseType` 表示要查找的节点类型，对应 XML 中的 `<SW-BASE-TYPE>`。
 2. `ar()` 返回对象列表，每一项只对应一个文件里的一个节点。
-3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径，`result.filepath` 是所在文件的路径；需要文件对象时使用 `io_arxml.get_file(result.filepath)`。
+3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径，`result.filepath` 是所在文件的路径；需要文件对象时使用 `io_arxml.files[result.filepath]`。
 4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
 
 每个文件加载时由 `scan_ref()` 全量扫描一次，建立 `objects`、`references` 和 `uuids` 三份初始索引。后续节点编辑使用 `update_node()` 增量维护已有索引。
@@ -97,7 +97,7 @@ result = io_arxml.ar(autosar.SwBaseType)[0]
 with io_arxml.edit(result) as base_type:
     base_type.uuid = 'updated-base-type'  # 修改这个 SW-BASE-TYPE 节点的 UUID 属性。
 
-file = io_arxml.get_file(result.filepath)
+file = io_arxml.files[result.filepath]
 print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经更新。
 ```
 
@@ -105,11 +105,11 @@ print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经
 
 文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
 
-使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件，已加载的路径会被拒绝；解析失败不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
+使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件；重复加载同一文件或与已加载文件存在相同对象路径时抛出异常，文件不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
 
-对象、引用和 UUID 索引保存在各个 `ArxmlFile` 中，通过 `io_arxml.get_file(Path('文件路径'))` 获取对应文件后访问 `file.objects`、`file.references` 和 `file.uuids`。跨文件查询使用 `io_arxml.ar()`、`io_arxml.find()`、`io_arxml.ref()` 和 `io_arxml.ref_to_ref()`。
+对象、引用和 UUID 索引保存在各个 `ArxmlFile` 中，通过 `io_arxml.files[Path('文件路径').resolve()]` 获取对应文件后访问 `file.objects`、`file.references` 和 `file.uuids`。跨文件查询使用 `io_arxml.ar()`、`io_arxml.find()`、`io_arxml.ref()` 和 `io_arxml.ref_to_ref()`。
 
-`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename=Path('文件路径'))` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
+`io_arxml.find(path)` 返回匹配对象列表；正常加载后同一路径最多对应一个对象。`io_arxml.ref(path)` 返回唯一对象或 None，发现多个匹配时抛出异常。查询指定文件时，使用 `io_arxml.files[Path('文件路径').resolve()].ref(path)`。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
 
 只处理一个文件时，可以直接使用文件层：
 
@@ -129,6 +129,8 @@ for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'),
 
 # 直接修改某个 result.xml_obj 后，对该 result 调用 file.update_node(result)，再调用 file.save() 保存。
 ```
+
+`reference.set_dest(('AUTOSAR_Platform', 'BaseTypes', 'float32'))` 将路径元组转为 `/AUTOSAR_Platform/BaseTypes/float32`，写入实际引用节点的文本值。调用后仍需按上面的流程更新所在具名节点的索引并保存文件。
 
 扫描沿嵌套对象和列表递归查找节点，用 `SHORT-NAME` 组成对象路径，并用 `isinstance(node, autosar.Ref)` 识别引用，包含直接和间接子类。引用结果保留实际引用节点，修改其 `.value` 后可以回写文件；引用目标可以位于其他文件或尚未加载。
 
