@@ -61,6 +61,37 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(reloaded.root, file.root)
         self.assertTrue(file.header.xml_schema_location.endswith('AUTOSAR_4-2-2.xsd'))
 
+    def test_parse_sets_parent_on_generated_dataclasses(self):
+        file = ArxmlFile().parse_file(self.path)
+        root = file.root
+        packages = root.ar_packages
+        package = packages.ar_package[0]
+
+        self.assertIsNone(root.arxml_parent)
+        self.assertIs(packages.arxml_parent, root)
+        self.assertIs(package.arxml_parent, packages)
+        self.assertIs(package.short_name.arxml_parent, package)
+
+        file.save()
+        reloaded = ArxmlFile().parse_file(self.path)
+        self.assertIs(reloaded.root.ar_packages.arxml_parent, reloaded.root)
+
+    def test_update_node_sets_parent_on_new_generated_dataclasses(self):
+        autosar = self.autosar
+        package = autosar.ArPackage(short_name=autosar.Identifier(value='Package'), elements=autosar.ArPackage.Elements(choice=[]))
+        root = autosar.Autosar(ar_packages=autosar.Autosar.ArPackages(ar_package=[package]))
+        file = ArxmlFile().parse_autosar(self.path, root)
+
+        gateway = autosar.Gateway(short_name=autosar.Identifier(value='Gateway'))
+        package.elements.choice.append(gateway)
+        file.update_node(file.ref(('Package',)))
+
+        self.assertIs(package.arxml_parent, root.ar_packages)
+        self.assertIs(package.elements.arxml_parent, package)
+        self.assertIs(gateway.arxml_parent, package.elements)
+        self.assertIs(gateway.short_name.arxml_parent, gateway)
+        self.assertIs(file.ref(('Package', 'Gateway')).xml_obj, gateway)
+
     def test_named_node_edit_refreshes_indexes_and_content(self):
         document = IOArxml([self.path])
         file = document.files[self.path]
@@ -204,6 +235,8 @@ class ArxmlTests(unittest.TestCase):
         document = IOArxml([])
         document.files[file.filepath] = file
 
+        self.assertIs(source.arxml_parent, mapping)
+        self.assertIs(target.arxml_parent, mapping.target_i_pdu)
         rows = file.references[('Network', 'Trigger')]
         self.assertEqual(len(rows), 2)
         self.assertIs(rows[0].xml_obj, source)

@@ -9,22 +9,22 @@ from unittest.mock import patch
 from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml
 
 
-@dataclass(slots=True)
+@dataclass
 class Text:
     value: str = ''
 
 
-@dataclass(slots=True)
+@dataclass
 class Reference(Text):
     base: str | None = field(default=None, metadata={'name': 'BASE', 'type': 'Attribute'})
 
 
-@dataclass(slots=True)
+@dataclass
 class ReferenceInner(Reference):
     dest: str = field(default='TYPE', metadata={'name': 'DEST', 'type': 'Attribute'})
 
 
-@dataclass(slots=True)
+@dataclass
 class IndirectReference(ReferenceInner):
     pass
 
@@ -35,13 +35,13 @@ class LookalikeRef:
     dest: str = 'TYPE'
 
 
-@dataclass(slots=True)
+@dataclass
 class NamedBase:
     short_name: Text = field(metadata={'name': 'SHORT-NAME', 'type': 'Element'})
     uuid: str | None = field(default=None, metadata={'name': 'UUID', 'type': 'Attribute'})
 
 
-@dataclass(slots=True)
+@dataclass
 class NamedNode(NamedBase):
     child: object = field(default=None, metadata={'type': 'Element'})
     content: list[object] = field(default_factory=list, metadata={'type': 'Elements'})
@@ -73,6 +73,35 @@ class ScanRefTests(unittest.TestCase):
         document = IOArxml([])
         document.files[file.filepath] = file
         return document.edit(node)
+
+    def test_rejects_dataclass_without_instance_dict(self):
+        @dataclass(slots=True)
+        class SlotNode:
+            value: str = 'child'
+
+        with self.assertRaisesRegex(TypeError, r'scan\.arxml.*SlotNode.*__dict__.*arxml_parent'):
+            self.scan(Container(value=SlotNode()))
+
+    def test_parent_field_is_not_overwritten(self):
+        @dataclass
+        class HasParent:
+            parent: str = 'original'
+            child: object = None
+
+        root = HasParent(child=Container())
+        self.scan(root)
+
+        self.assertEqual(root.parent, 'original')
+        self.assertIsNone(root.arxml_parent)
+        self.assertIs(root.child.arxml_parent, root)
+
+    def test_rejects_arxml_parent_field_collision(self):
+        @dataclass
+        class HasArxmlParent:
+            arxml_parent: str = 'original'
+
+        with self.assertRaisesRegex(TypeError, r'HasArxmlParent.*已声明 arxml_parent 字段'):
+            self.scan(HasArxmlParent())
 
     def test_fields_sequences_inheritance_and_reference_identity(self):
         first = Reference('/Types/Target')

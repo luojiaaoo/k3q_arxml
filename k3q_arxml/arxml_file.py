@@ -158,7 +158,7 @@ class ArxmlFile:
             return ref[: len(old_ref)] == old_ref
 
         # 2. 用旧父路径扫描修改后的整棵子树，新的 SHORT-NAME 由扫描器追加。
-        objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1])
+        objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=getattr(node.xml_obj, 'arxml_parent', None))
 
         # 3. 检查新路径是否占用了其他分支，并在旧位置插入整棵新子树。
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
@@ -269,6 +269,7 @@ class ArxmlFile:
         self,
         obj: Any,
         parent_ref: TupleRef = (),
+        parent_obj: Any = None,
     ) -> tuple[dict[TupleRef, ArxmlNamedNode[Any]], dict[TupleRef, list[ArxmlRefNode]], dict[Uuid, TupleRef]]:
         """遍历 dataclass 声明字段，返回包装好的对象、反向引用和 UUID 三组索引。
 
@@ -324,16 +325,22 @@ class ArxmlFile:
             assert self.filepath is not None
             references.setdefault(target_ref, []).append(ArxmlRefNode(filepath=self.filepath, xml_obj=node, owner_ref=ref))
 
-        def _scan(node: Any, ref: TupleRef) -> None:
+        def _scan(node: Any, ref: TupleRef, parent: Any) -> None:
             if isinstance(node, (list, tuple)):
                 # 列表的话，继续向下搜索
                 for child in node:
-                    _scan(child, ref)
+                    _scan(child, ref, parent)
                 return
 
             # 不是数据类，跳过
             if isinstance(node, type) or not is_dataclass(node):
                 return
+
+            if not hasattr(node, '__dict__'):
+                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 没有 __dict__，无法添加 arxml_parent 属性')
+            if 'arxml_parent' in type(node).__dataclass_fields__:
+                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_parent 字段，无法用于父节点')
+            node.arxml_parent = parent
 
             # 发现是路径节点，登记对象和 UUID
             if hasattr(node, 'short_name'):
@@ -343,14 +350,14 @@ class ArxmlFile:
             if isinstance(node, Ref):
                 _add_reference(node, ref)
 
-            # fields() 包含继承字段，普通和 slots dataclass 均适用；不会遍历临时 Python 属性。
+            # fields() 包含继承字段，不会遍历临时 Python 属性。
             for model_field in self._get_fields(node):
                 # 字段定义包含名称和 XML 元数据；getattr() 读取当前实例的实际值。
                 value = getattr(node, model_field.name)
                 if value is None:
                     continue
                 if isinstance(value, (list, tuple)) or (is_dataclass(value) and not isinstance(value, type)):
-                    _scan(value, ref)
+                    _scan(value, ref, node)
 
-        _scan(obj, parent_ref)
+        _scan(obj, parent_ref, parent_obj)
         return objects, references, uuids
