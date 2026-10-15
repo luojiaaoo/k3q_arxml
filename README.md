@@ -107,7 +107,9 @@ print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经
 
 使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件，已加载的路径会被拒绝；解析失败不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
 
-加载多个文件时，同一 AUTOSAR 路径的节点分别保留。`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename=Path('文件路径'))` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
+对象、引用和 UUID 索引保存在各个 `ArxmlFile` 中，通过 `io_arxml.get_file(Path('文件路径'))` 获取对应文件后访问 `file.objects`、`file.references` 和 `file.uuids`。跨文件查询使用 `io_arxml.ar()`、`io_arxml.find()`、`io_arxml.ref()` 和 `io_arxml.ref_to_ref()`。
+
+`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename=Path('文件路径'))` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
 
 只处理一个文件时，可以直接使用文件层：
 

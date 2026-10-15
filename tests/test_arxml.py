@@ -37,18 +37,18 @@ class ArxmlTests(unittest.TestCase):
     def test_native_module_and_round_trip_preserve_objects_and_references(self):
         self.assertIsInstance(self.autosar, ModuleType)
         original = IOArxml([self.path])
-        paths = set(original.objects)
-        references = {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in original.references.items()}
+        file = original.get_file(self.path)
+        paths = set(file.objects)
+        references = {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in file.references.items()}
         self.assertTrue(paths)
         self.assertTrue(references)
-        file = original.get_file(self.path)
         self.assertEqual(file.parse_schema_version, '4.2.2')
         self.assertEqual(file.header.file_schema_version, '4.2.2')
         original.flush_to_file()
-        reloaded = IOArxml([self.path])
+        reloaded = IOArxml([self.path]).get_file(self.path)
         self.assertEqual(set(reloaded.objects), paths)
         self.assertEqual({ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in reloaded.references.items()}, references)
-        self.assertEqual(reloaded.get_file(self.path).root, file.root)
+        self.assertEqual(reloaded.root, file.root)
         self.assertTrue(file.header.xml_schema_location.endswith('AUTOSAR_4-2-2.xsd'))
 
     def test_named_node_edit_refreshes_indexes_and_content(self):
@@ -240,9 +240,6 @@ class ArxmlTests(unittest.TestCase):
 
         self.assertEqual(len(results), expected_count)
         self.assertEqual({result.filepath for result in results}, {self.path, other_path})
-        self.assertEqual(document.references[ref], results)
-        for row, result in zip(document.references[ref], results, strict=True):
-            self.assertIs(row, result)
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
     def test_rename_updates_definition_and_references_after_rescan(self):

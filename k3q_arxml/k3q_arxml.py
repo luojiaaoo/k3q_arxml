@@ -36,22 +36,6 @@ class IOArxml:
         finally:
             file.update_node(node)
 
-    @property
-    def objects(self) -> dict[TupleRef, list[ArxmlNamedNode[Any]]]:
-        result: dict[TupleRef, list[ArxmlNamedNode[Any]]] = {}
-        for file in self.files.values():
-            for ref, obj in file.objects.items():
-                result.setdefault(ref, []).append(obj)
-        return result
-
-    @property
-    def references(self) -> dict[TupleRef, list[ArxmlRefNode]]:
-        result: dict[TupleRef, list[ArxmlRefNode]] = {}
-        for file in self.files.values():
-            for ref, rows in file.references.items():
-                result.setdefault(ref, []).extend(rows)
-        return result
-
     def find(self, ref: TupleRef) -> list[ArxmlNamedNode[Any]]:
         """返回不同文件中具有该路径的所有对象。"""
         return [obj for file in self.files.values() if (obj := file.ref(ref)) is not None]
