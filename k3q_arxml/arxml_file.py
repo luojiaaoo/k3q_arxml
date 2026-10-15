@@ -51,6 +51,7 @@ class ArxmlFile:
         self.objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
         self.references: dict[TupleRef, list[ArxmlRefNode]] = {}  # 按目标路径索引的引用节点，包含所在文件和来源路径。
         self.uuids: dict[Uuid, TupleRef] = {}  # 按 UUID 索引的对象路径。
+        self._dirty = False  # 索引更新后尚未保存的修改。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
         self.root: Autosar  # 当前文件对应的 AUTOSAR 根对象。
@@ -195,6 +196,7 @@ class ArxmlFile:
         # 6. 全部成功后同步传入节点的路径并发布三份索引。
         node.ref = (*old_ref[:-1], node.short_name)
         self.objects, self.references, self.uuids = merged_objects, merged_references, merged_uuids
+        self._dirty = True
 
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
         """按完整 AUTOSAR 路径查找当前文件中的对象。
@@ -242,6 +244,7 @@ class ArxmlFile:
             content = f'{declaration}\n{self.format.leading_comments}\n{body}'
         with open(self.filepath, 'w', encoding='utf-8') as f:
             f.write(content)
+        self._dirty = False
 
     def _get_fields(self, node: Any) -> tuple[Field[Any], ...]:
         """按节点类型获取 dataclass 字段定义，缓存供本实例的后续扫描复用。

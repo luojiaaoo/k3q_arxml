@@ -70,16 +70,6 @@ class IOArxml:
         """
         return [row for file in self.files.values() for row in file.references.get(ref, [])]
 
-    def scan_ref(self, debug_uuid: bool = False) -> None:
-        """显式全量扫描所有已加载文件；debug_uuid=True 时打印各文件的 UUID 索引。
-
-        文件加载时已分别完成初始扫描；后续编辑使用 edit() 或文件层 update_node() 增量更新。
-        """
-        for file in self.files.values():
-            file.scan_ref()
-        if debug_uuid:
-            pprint.pp({filename: file.uuids for filename, file in self.files.items()})
-
     def append(self, filepath: Filepath) -> ArxmlFile:
         """加载已有的 ARXML 文件并加入管理，拒绝重复路径；不写回文件。"""
         filepath = filepath.resolve()
@@ -96,8 +86,10 @@ class IOArxml:
         return file
 
     def flush_to_file(self) -> None:
+        """仅保存索引更新后尚未回写的文件。"""
         for file in self.files.values():
-            file.save()
+            if file._dirty:
+                file.save()
 
     def print(self, print_filepath: Filepath | None = None) -> None:
         if print_filepath is None:

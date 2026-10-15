@@ -118,11 +118,43 @@ class ArxmlTests(unittest.TestCase):
             self.assertIs(document.ref(ref, filename=Path('sample.arxml')), file.ref(ref))
             self.assertIsInstance(file.filepath, Path)
             self.assertEqual(file.ref(ref).filepath, self.path)
-            file.format.leading_comments = '<!-- saved once -->'
+            with document.edit(file.ar(self.autosar.SwBaseType)[0]) as obj:
+                obj.uuid = 'saved-once'
 
         # 离开原工作目录后仍写入原文件，且没有另一份旧对象覆盖本次修改。
         document.flush_to_file()
-        self.assertEqual(ArxmlFile().parse_file(self.path).format.leading_comments, '<!-- saved once -->')
+        self.assertIn('saved-once', ArxmlFile().parse_file(self.path).uuids)
+
+    def test_flush_saves_only_updated_files_and_retries_failed_save(self):
+        other_path = self.path.with_name('other.arxml')
+        copy2(self.path, other_path)
+        document = IOArxml([self.path, other_path])
+        first = document.get_file(self.path)
+        second = document.get_file(other_path)
+
+        with patch.object(first, 'save', wraps=first.save) as first_save, patch.object(second, 'save', wraps=second.save) as second_save:
+            document.flush_to_file()
+            first_save.assert_not_called()
+            second_save.assert_not_called()
+
+            with document.edit(first.ar(self.autosar.SwBaseType)[0]) as obj:
+                obj.uuid = 'first-edited'
+            document.flush_to_file()
+            first_save.assert_called_once_with()
+            second_save.assert_not_called()
+
+            node = second.ar(self.autosar.SwBaseType)[0]
+            node.xml_obj.uuid = 'second-edited'
+            second.update_node(node)
+            with patch.object(second, 'save', side_effect=OSError('save failed')):
+                with self.assertRaisesRegex(OSError, 'save failed'):
+                    document.flush_to_file()
+            document.flush_to_file()
+            self.assertEqual(first_save.call_count, 1)
+            second_save.assert_called_once_with()
+
+        self.assertIn('first-edited', ArxmlFile().parse_file(self.path).uuids)
+        self.assertIn('second-edited', ArxmlFile().parse_file(other_path).uuids)
 
     def test_standalone_file_keeps_resolved_path(self):
         with chdir(self.temporary.name):
@@ -242,7 +274,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual({result.filepath for result in results}, {self.path, other_path})
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
-    def test_rename_updates_definition_and_references_after_rescan(self):
+    def test_rename_updates_definition_and_references_incrementally(self):
         other_path = self.path.with_name('references.arxml')
         tree = etree.parse(self.path)
         base_types = tree.xpath('//ar:AR-PACKAGE[ar:SHORT-NAME="BaseTypes"]', namespaces={'ar': 'http://autosar.org/schema/r4.0'})[0]
@@ -255,10 +287,16 @@ class ArxmlTests(unittest.TestCase):
         target = document.ref(ref)
         assert target is not None
         updated_ref = (*ref[:-1], ref[-1] + '_renamed')
+        references = document.ref_to_ref(ref)
         target.xml_obj.short_name.value = updated_ref[-1]
-        for reference in document.ref_to_ref(ref):
+        for reference in references:
             reference.xml_obj.value = document.ref2ref_str(updated_ref)
-        document.scan_ref()
+        document.get_file(target.filepath).update_node(target)
+        for filepath, owner_ref in {(reference.filepath, reference.owner_ref) for reference in references}:
+            file = document.get_file(filepath)
+            owner = file.ref(owner_ref)
+            assert owner is not None
+            file.update_node(owner)
         self.assertIsNone(document.ref(ref))
         self.assertIsNotNone(document.ref(updated_ref))
         self.assertTrue(document.ref_to_ref(updated_ref))
@@ -314,7 +352,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertTrue(file.references)
         self.assertEqual(self.path.read_bytes(), original_content)
         file.format.leading_comments = '<!-- 通过 IOArxml 保存 -->'
-        document.flush_to_file()
+        file.save()
 
         reloaded = ArxmlFile().parse_file(self.path)
         self.assertEqual(reloaded.format.leading_comments, file.format.leading_comments)
