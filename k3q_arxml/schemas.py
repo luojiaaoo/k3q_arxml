@@ -60,7 +60,8 @@ class ArxmlNode(Generic[T]):
 class ArxmlNamedNode(ArxmlNode[T]):
     """带有 SHORT-NAME 的 ARXML 节点，xml_obj 为实际 XML 对象。
 
-    ref 保存索引中上次登记的完整路径，update_node() 成功后与新索引同步。
+    ref 保存该包装上次登记的完整路径；作为 update_node() 入参时，成功后同步该节点的 ref。
+    索引更新使用新包装，后续编辑子节点时重新查询其包装。
     """
 
     ref: TupleRef

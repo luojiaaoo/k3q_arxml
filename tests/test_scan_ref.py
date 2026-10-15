@@ -344,8 +344,9 @@ class ScanRefTests(unittest.TestCase):
             self.assertEqual(node.ref, ('A',))
             self.assertEqual(child_node.ref, ('A', 'Child'))
         self.assertIs(file.ref(('B',)), previous[0][('B',)])
-        self.assertIs(file.ref(('Renamed',)), node)
-        self.assertIs(file.ref(('Renamed', 'RenamedChild')), child_node)
+        self.assertEqual(node.ref, ('Renamed',))
+        self.assertIs(file.ref(('Renamed',)).xml_obj, node.xml_obj)
+        self.assertIs(file.ref(('Renamed', 'RenamedChild')).xml_obj, child_node.xml_obj)
 
     def test_nested_edit_of_renamed_root_refreshes_current_path(self):
         file = self.scan(NamedNode(Text('Package'), child=NamedNode(Text('Child'))))
@@ -412,10 +413,12 @@ class ScanRefTests(unittest.TestCase):
             ],
         )
         self.assertIs(file.ref(('Renamed', 'Replaced')).xml_obj, replacement)
-        self.assertIs(file.ref(('Renamed',)), node)
+        self.assertIsNot(file.ref(('Renamed',)), node)
+        self.assertIs(file.ref(('Renamed',)).xml_obj, node.xml_obj)
         self.assertEqual(node.ref, ('Renamed',))
-        self.assertIs(file.ref(('Renamed', 'Right', 'NewMoved')), moved_node)
-        self.assertEqual(moved_node.ref, ('Renamed', 'Right', 'NewMoved'))
+        self.assertIsNot(file.ref(('Renamed', 'Right', 'NewMoved')), moved_node)
+        self.assertIs(file.ref(('Renamed', 'Right', 'NewMoved')).xml_obj, moved)
+        self.assertEqual(file.ref(('Renamed', 'Right', 'NewMoved')).ref, ('Renamed', 'Right', 'NewMoved'))
         self.assertIs(file.ref(('PackageExtra',)), outside)
         self.assertIs(file.references[('Package', 'Removed')][0], outside_reference)
         self.assertEqual(incoming.value, '/Package/Removed')
@@ -479,7 +482,7 @@ class ScanRefTests(unittest.TestCase):
         file.update_node(node)
         self.assertNotIn('duplicate', file.uuids)
 
-    def test_update_node_syncs_parent_and_descendant_wrappers(self):
+    def test_update_node_creates_new_wrappers_and_refreshes_input_ref(self):
         child = NamedNode(Text('Child'), uuid='child-id')
         file = self.scan(NamedNode(Text('Package'), child=child))
         parent_node = file.ref(('Package',))
@@ -487,21 +490,26 @@ class ScanRefTests(unittest.TestCase):
 
         parent_node.xml_obj.short_name.value = 'Renamed'
         file.update_node(parent_node)
-        self.assertIs(file.ref(('Renamed',)), parent_node)
+        self.assertIsNot(file.ref(('Renamed',)), parent_node)
+        self.assertIs(file.ref(('Renamed',)).xml_obj, parent_node.xml_obj)
         self.assertEqual(parent_node.ref, ('Renamed',))
-        self.assertIs(file.ref(('Renamed', 'Child')), child_node)
+        self.assertIsNot(file.ref(('Renamed', 'Child')), child_node)
+        self.assertEqual(child_node.ref, ('Package', 'Child'))
+        child_node = file.ref(('Renamed', 'Child'))
         self.assertEqual(child_node.ref, ('Renamed', 'Child'))
         child.short_name.value = 'NewChild'
         file.update_node(child_node)
 
         self.assertEqual(list(file.objects), [('Renamed',), ('Renamed', 'NewChild')])
-        self.assertIs(file.ref(('Renamed', 'NewChild')), child_node)
+        self.assertIsNot(file.ref(('Renamed', 'NewChild')), child_node)
+        self.assertIs(file.ref(('Renamed', 'NewChild')).xml_obj, child)
         self.assertEqual(child_node.ref, ('Renamed', 'NewChild'))
         self.assertEqual(file.uuids, {'child-id': ('Renamed', 'NewChild')})
 
         with self.edit(file, parent_node) as obj:
             obj.short_name.value = 'RenamedAgain'
-        self.assertIs(file.ref(('RenamedAgain',)), parent_node)
+        self.assertIsNot(file.ref(('RenamedAgain',)), parent_node)
+        self.assertIs(file.ref(('RenamedAgain',)).xml_obj, parent_node.xml_obj)
         self.assertEqual(parent_node.ref, ('RenamedAgain',))
-        self.assertIs(file.ref(('RenamedAgain', 'NewChild')), child_node)
-        self.assertEqual(child_node.ref, ('RenamedAgain', 'NewChild'))
+        self.assertIs(file.ref(('RenamedAgain', 'NewChild')).xml_obj, child)
+        self.assertEqual(file.ref(('RenamedAgain', 'NewChild')).ref, ('RenamedAgain', 'NewChild'))

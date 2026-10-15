@@ -101,7 +101,7 @@ file = io_arxml.get_file(result.filepath)
 print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经更新。
 ```
 
-编辑时使用从当前文件查询得到、仍在 XML 树中的有效节点包装。上下文返回实际 XML 对象，IO 层通过节点的 `.filepath` 定位已加载文件，再调用文件层的 `update_node(result)` 局部更新索引。单独使用 `ArxmlFile` 时，也可以在修改后直接调用 `file.update_node(result)`。修改范围限于编辑根节点及其子树；删除或移动编辑根本身时，应以包含全部变化的共同具名祖先为编辑根。新的名称、引用和 UUID 查询应放在上下文退出后；更新成功后复用原包装，并同步根节点及仍保留的后代包装的 `.ref`，可以继续用同一包装编辑。需要保留旧路径时，应在修改前另存 `old_ref = result.ref`。其他分支的节点包装保持有效。异常退出同样刷新已经发生的修改，不自动回滚；刷新失败或路径与其他分支冲突时保留上一轮索引和包装路径。保存到磁盘仍需调用 `file.save()` 或 `io_arxml.flush_to_file()`。
+编辑时使用从当前文件查询得到、仍在 XML 树中的有效节点包装。上下文返回实际 XML 对象，IO 层通过节点的 `.filepath` 定位已加载文件，再调用文件层的 `update_node(result)` 局部更新索引。单独使用 `ArxmlFile` 时，也可以在修改后直接调用 `file.update_node(result)`。修改范围限于编辑根节点及其子树；删除或移动编辑根本身时，应以包含全部变化的共同具名祖先为编辑根。新的名称、引用和 UUID 查询应放在上下文退出后；扫描结果使用新包装，更新成功后同步传入 `result` 的 `.ref`，可继续编辑同一个根对象。后续编辑子节点时，重新调用 `ref()` / `ar()` 获取其新包装。需要保留旧路径时，应在修改前另存 `old_ref = result.ref`。其他分支的节点包装保持有效。异常退出同样刷新已经发生的修改，不自动回滚；刷新失败或路径与其他分支冲突时保留上一轮索引和传入节点的路径。保存到磁盘仍需调用 `file.save()` 或 `io_arxml.flush_to_file()`。
 
 文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
 

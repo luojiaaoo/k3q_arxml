@@ -70,7 +70,8 @@ class ArxmlTests(unittest.TestCase):
 
         updated = file.ref((*ref[:-1], 'NewName'))
         self.assertIsNone(file.ref(ref))
-        self.assertIs(updated, node)
+        self.assertIsNot(updated, node)
+        self.assertIs(updated.xml_obj, node.xml_obj)
         self.assertEqual(node.ref, (*ref[:-1], 'NewName'))
         self.assertEqual(file.uuids['new-uuid'], updated.ref)
         # 原包装同步了新路径，可以再次进入编辑上下文。

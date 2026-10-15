@@ -136,9 +136,7 @@ class ArxmlFile:
         扫描及包装全部成功后统一替换索引；失败时保留原索引，不撤销 XML 对象修改。
         """
         assert self.filepath is not None
-        objects, references, uuids = self.__scan_arobj_ref(self.root)
-        wrapped_objects = {ref: ArxmlNamedNode(filepath=self.filepath, xml_obj=obj, ref=ref) for ref, obj in objects.items()}
-        self.objects, self.references, self.uuids = wrapped_objects, references, uuids
+        self.objects, self.references, self.uuids = self.__scan_arobj_ref(self.root)
 
     def update_node(self, node: ArxmlNamedNode[Any]) -> None:
         """加载完成后，增量更新 node 及其整棵子树的对象、反向引用和 UUID 索引。
@@ -149,8 +147,8 @@ class ArxmlFile:
         具名祖先。通过父对象的字段或列表修改 XML 结构，包装的 ref 由本方法维护。
 
         这里只刷新索引，引用的 .value 按实际内容登记；重命名时仍需调用方同步引用文本。
-        成功后复用原包装，并同步根节点及仍保留的后代包装的 ref。失败时保留旧索引和包装路径，
-        不撤销已发生的 XML 对象修改，也不写回文件。
+        扫描结果使用新包装，成功后同步传入 node 的 ref。后续编辑子节点时重新查询其包装。
+        失败时保留旧索引和传入节点的路径，不撤销已发生的 XML 对象修改，也不写回文件。
         """
         # 1. 直接从包装获取旧路径和 XML 对象。
         old_ref = node.ref
@@ -160,12 +158,6 @@ class ArxmlFile:
 
         # 2. 用旧父路径扫描修改后的整棵子树，新的 SHORT-NAME 由扫描器追加。
         objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1])
-        # 原 XML 对象复用原包装；新增或替换的对象才创建包装。此时暂不改动旧包装的 ref。
-        existing_nodes = {id(current.xml_obj): current for ref, current in self.objects.items() if in_old_subtree(ref)}
-        wrapped_objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
-        for ref, obj in objects.items():
-            existing = existing_nodes.pop(id(obj), None)
-            wrapped_objects[ref] = existing if existing is not None else ArxmlNamedNode(filepath=node.filepath, xml_obj=obj, ref=ref)
 
         # 3. 检查新路径是否占用了其他分支，并在旧位置插入整棵新子树。
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
@@ -175,7 +167,7 @@ class ArxmlFile:
         merged_objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
         for ref, current in self.objects.items():
             if ref == old_ref:
-                merged_objects.update(wrapped_objects)
+                merged_objects.update(objects)
             elif not in_old_subtree(ref):
                 merged_objects[ref] = current
 
@@ -200,9 +192,8 @@ class ArxmlFile:
                 if uuid is not None and uuid != '':
                     merged_uuids[uuid] = ref
 
-        # 6. 全部成功后同步包装路径并发布三份索引，下一次可继续直接通过 node.ref 定位。
-        for ref, current in wrapped_objects.items():
-            current.ref = ref
+        # 6. 全部成功后同步传入节点的路径并发布三份索引。
+        node.ref = (*old_ref[:-1], node.short_name)
         self.objects, self.references, self.uuids = merged_objects, merged_references, merged_uuids
 
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
@@ -263,11 +254,16 @@ class ArxmlFile:
             self._field_cache[node_type] = fields(node_type)
         return self._field_cache[node_type]
 
-    def __scan_arobj_ref(self, obj: Any, parent_ref: TupleRef = ()) -> tuple[dict[TupleRef, Any], dict[TupleRef, list[ArxmlRefNode]], dict[Uuid, TupleRef]]:
-        """遍历 dataclass 声明字段并递归扫描，返回对象、反向引用和 UUID 三组索引。
+    def __scan_arobj_ref(
+        self,
+        obj: Any,
+        parent_ref: TupleRef = (),
+    ) -> tuple[dict[TupleRef, ArxmlNamedNode[Any]], dict[TupleRef, list[ArxmlRefNode]], dict[Uuid, TupleRef]]:
+        """遍历 dataclass 声明字段，返回包装好的对象、反向引用和 UUID 三组索引。
 
         只扫描传入 obj 的子树并返回结果，不直接修改文件索引。scan_ref() 传入 root 做全量初始化，
         update_node() 传入 node.xml_obj 和旧父路径做局部扫描，再将结果合入现有索引。
+        遇到具名对象时直接创建 ArxmlNamedNode，包装的 ref 使用本次扫描得到的路径。
         路径只追加 SHORT-NAME，无名容器沿用父路径。
         例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
             references[('Types', 'Speed')] = [ArxmlRefNode(filepath=self.filepath, xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
@@ -278,7 +274,7 @@ class ArxmlFile:
         """
         from .autosar import Ref
 
-        objects: dict[TupleRef, Any] = {}
+        objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}
         references: dict[TupleRef, list[ArxmlRefNode]] = {}
         uuids: dict[Uuid, TupleRef] = {}
 
@@ -291,8 +287,8 @@ class ArxmlFile:
                 raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.short_name): SHORT-NAME 必须是非空且不含 / 的字符串')
             # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
             named_ref = (*ref, name)
-            # 保存实际 XML 对象，由 scan_ref() 创建包装，或由 update_node() 复用、创建包装。
-            objects[named_ref] = node
+            # 在登记对象时直接完成包装，调用方无需再次转换 objects。
+            objects[named_ref] = ArxmlNamedNode(filepath=cast(Filepath, self.filepath), xml_obj=node, ref=named_ref)
             uuid = getattr(node, 'uuid', None)
             # UUID 是可选属性；缺失 UUID 的节点仍登记在 objects 中。
             if uuid is not None and uuid != '':
