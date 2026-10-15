@@ -158,7 +158,7 @@ class ArxmlFile:
             return ref[: len(old_ref)] == old_ref
 
         # 2. 用旧父路径扫描修改后的整棵子树，新的 SHORT-NAME 由扫描器追加。
-        objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=getattr(node.xml_obj, 'arxml_parent', None))
+        objects, references, uuids = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=node.xml_obj.arxml_parent)
 
         # 3. 检查新路径是否占用了其他分支，并在旧位置插入整棵新子树。
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
@@ -336,10 +336,11 @@ class ArxmlFile:
             if isinstance(node, type) or not is_dataclass(node):
                 return
 
-            if not hasattr(node, '__dict__'):
-                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 没有 __dict__，无法添加 arxml_parent 属性')
+            # 确保节点可以添加 arxml_parent 属性；如果节点声明了该字段，抛出异常。
             if 'arxml_parent' in type(node).__dataclass_fields__:
                 raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_parent 字段，无法用于父节点')
+            
+            # 为当前节点设置父节点引用
             node.arxml_parent = parent
 
             # 发现是路径节点，登记对象和 UUID
