@@ -9,7 +9,7 @@ import pytest
 from lxml import etree
 from xsdata.formats.dataclass.parsers import XmlParser
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, ArxmlTransaction, IOArxml, ref2ref_str
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, ArxmlTransaction, IOArxml, ref2str
 
 
 class TestArxml:
@@ -363,7 +363,7 @@ class TestArxml:
         updated_ref = (*target_ref[:-1], target_ref[-1] + '_New')
         original_dest = reference.xml_obj.dest
         reference.set_dest(updated_ref)
-        assert reference.xml_obj.value == ref2ref_str(updated_ref)
+        assert reference.xml_obj.value == ref2str(updated_ref)
         assert reference.xml_obj.dest is original_dest
 
         owner = file.ref(reference.owner_ref)
@@ -372,7 +372,7 @@ class TestArxml:
         file.save()
 
         reloaded = ArxmlFile().parse_file(self.path)
-        assert any((row.owner_ref == reference.owner_ref and row.xml_obj.value == ref2ref_str(updated_ref) for row in reloaded.index.references[updated_ref]))
+        assert any((row.owner_ref == reference.owner_ref and row.xml_obj.value == ref2str(updated_ref) for row in reloaded.index.references[updated_ref]))
 
         plain_reference = ArxmlRefNode(xml_obj=self.autosar.Ref(value='/Target'), owner_ref=())
         plain_reference.set_dest(('Other', 'Target'))

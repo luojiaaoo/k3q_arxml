@@ -31,12 +31,12 @@ def get_xml_metadata(schema_version: str) -> dict[str, str]:
     return {'xml_namespace': xml_namespace, 'xml_schema_location': xml_schema_location}
 
 
-def ref_str2ref(ref_str: str) -> TupleRef:
+def str2ref(ref_str: str) -> TupleRef:
     """将 /Package/Type 形式的绝对引用路径转换为 ('Package', 'Type') 元组。"""
     return tuple(ref_str.split('/')[1:])
 
 
-def ref2ref_str(ref: TupleRef) -> str:
+def ref2str(ref: TupleRef) -> str:
     """将 ('Package', 'Type') 形式的路径元组转换为 /Package/Type 引用字符串。"""
     return '/' + '/'.join(ref)
 
@@ -163,7 +163,7 @@ class ArxmlFile:
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
         for ref in scanned.objects:
             if ref in self.index.objects and not in_old_subtree(ref):
-                raise ValueError(f'{self.filepath}: 路径 {ref2ref_str(ref)} 与其他分支冲突')
+                raise ValueError(f'{self.filepath}: 路径 {ref2str(ref)} 与其他分支冲突')
         merged = ArxmlIndex()
         for ref, current in self.index.objects.items():
             if ref == old_ref:
@@ -309,7 +309,7 @@ class ArxmlFile:
             # Identifier.value 才是 SHORT-NAME 文本；只检查组成路径所需的基本条件。
             name = getattr(node.short_name, 'value', None)
             if not isinstance(name, str) or not name.strip() or '/' in name:
-                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.short_name): SHORT-NAME 必须是非空且不含 / 的字符串')
+                raise ValueError(f'{self.filepath}: {ref2str(ref)} ({type(node).__qualname__}.short_name): SHORT-NAME 必须是非空且不含 / 的字符串')
             # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
             named_ref = (*ref, name)
             # 在登记对象时直接完成包装，调用方无需再次转换 objects。
@@ -318,7 +318,7 @@ class ArxmlFile:
             # UUID 是可选属性；缺失 UUID 的节点仍登记在 objects 中。
             if uuid is not None and uuid != '':
                 if not isinstance(uuid, str):
-                    raise ValueError(f'{self.filepath}: {ref2ref_str(named_ref)} ({type(node).__qualname__}.uuid): UUID 必须是字符串')
+                    raise ValueError(f'{self.filepath}: {ref2str(named_ref)} ({type(node).__qualname__}.uuid): UUID 必须是字符串')
                 index.uuids[uuid] = named_ref
             return named_ref
 
@@ -328,11 +328,11 @@ class ArxmlFile:
             value = node.value
             # 先确认是绝对路径；否则下面的转换会把相对路径的第一段错误地丢掉。
             if not isinstance(value, str) or not value.startswith('/'):
-                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用必须是非空绝对路径，不支持相对引用或 BASE 解析')
-            target_ref = ref_str2ref(value)
+                raise ValueError(f'{self.filepath}: {ref2str(ref)} ({type(node).__qualname__}.value): 引用必须是非空绝对路径，不支持相对引用或 BASE 解析')
+            target_ref = str2ref(value)
             # '/'、'/Types/'、'/Types//Speed' 转换后含空字符串，不能作为有效目标路径。
             if not all(target_ref):
-                raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
+                raise ValueError(f'{self.filepath}: {ref2str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
             # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
             # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
             index.references.setdefault(target_ref, []).append(ArxmlRefNode(xml_obj=node, owner_ref=ref))

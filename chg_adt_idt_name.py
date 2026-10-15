@@ -11,7 +11,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, ref_str2ref, ref2ref_str
+    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, str2ref, ref2str
     from k3q_arxml.log import configure_logging
 
     for filepath in args.arxml_files:
@@ -35,8 +35,8 @@ def main() -> None:
             transaction.add(i)
             for reference in references:
                 ref_obj = reference.xml_obj
-                i = ref_str2ref(ref_obj.value)
-                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                i = str2ref(ref_obj.value)
+                ref_obj.value = ref2str([*i[:-1], f'ADT_{i[-1]}'])
                 transaction.add(ref_obj)
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationArrayDataType):
@@ -48,8 +48,8 @@ def main() -> None:
             transaction.add(i)
             for reference in references:
                 ref_obj = reference.xml_obj
-                i = ref_str2ref(ref_obj.value)
-                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                i = str2ref(ref_obj.value)
+                ref_obj.value = ref2str([*i[:-1], f'ADT_{i[-1]}'])
                 transaction.add(ref_obj)
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationRecordDataType):
@@ -61,8 +61,8 @@ def main() -> None:
             transaction.add(i)
             for reference in references:
                 ref_obj = reference.xml_obj
-                i = ref_str2ref(ref_obj.value)
-                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                i = str2ref(ref_obj.value)
+                ref_obj.value = ref2str([*i[:-1], f'ADT_{i[-1]}'])
                 transaction.add(ref_obj)
 
     # 修改idt
@@ -75,8 +75,8 @@ def main() -> None:
             transaction.add(i)
             for reference in references:
                 ref_obj = reference.xml_obj
-                i = ref_str2ref(ref_obj.value)
-                ref_obj.value = ref2ref_str([*i[:-1], f'IDT_{i[-1]}'])
+                i = str2ref(ref_obj.value)
+                ref_obj.value = ref2str([*i[:-1], f'IDT_{i[-1]}'])
                 transaction.add(ref_obj)
 
     io_arxml.flush_to_file()

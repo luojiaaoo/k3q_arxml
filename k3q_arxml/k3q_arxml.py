@@ -4,7 +4,7 @@ import pprint
 from collections.abc import Iterable
 from typing import Any
 
-from .arxml_file import ArxmlFile, ref2ref_str
+from .arxml_file import ArxmlFile, ref2str
 from .schemas import ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
 
 
@@ -26,7 +26,7 @@ class IOArxml:
             if obj is None:
                 continue
             if match is not None:
-                raise ValueError(f'{ref2ref_str(ref)} 存在于多个文件')
+                raise ValueError(f'{ref2str(ref)} 存在于多个文件')
             match = obj
         return match
 
@@ -67,7 +67,7 @@ class IOArxml:
         for ref in file.index.objects:
             for loaded_file in self.files.values():
                 if ref in loaded_file.index.objects:
-                    raise ValueError(f'{ref2ref_str(ref)} 同时存在于 {loaded_file.filepath} 和 {filepath}')
+                    raise ValueError(f'{ref2str(ref)} 同时存在于 {loaded_file.filepath} 和 {filepath}')
         self.files[filepath] = file
         return file
 

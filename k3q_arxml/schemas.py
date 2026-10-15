@@ -91,9 +91,9 @@ class ArxmlRefNode(ArxmlNode['Ref']):
 
     def set_dest(self, ref: TupleRef) -> None:
         """将目标路径元组转换为 XML 引用路径，写入实际引用节点。"""
-        from .arxml_file import ref2ref_str
+        from .arxml_file import ref2str
 
-        self.xml_obj.value = ref2ref_str(ref)
+        self.xml_obj.value = ref2str(ref)
 
 
 @dataclass
