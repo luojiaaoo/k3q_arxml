@@ -14,7 +14,7 @@ def rename_files(tmp_path):
     if autosar.SCHEMA_VERSION != '4.2.2':
         pytest.skip('重命名脚本测试需要生成 4.2.2 绑定')
 
-    def create(types):
+    def create(types, interface_names=('Interface',)):
         def write(filename, package, elements):
             path = tmp_path / filename
             path.write_text(
@@ -27,19 +27,21 @@ def rename_files(tmp_path):
             return path
 
         definitions = ''.join(f'<{tag}><SHORT-NAME>{name}</SHORT-NAME></{tag}>' for tag, name in types)
-        # 每个目标在同一接口中引用两次，引用文件与定义文件分开。
+        # 每个接口对每个目标引用两次，引用文件与定义文件分开。
         variables = ''.join(
             f'<VARIABLE-DATA-PROTOTYPE><SHORT-NAME>Value{i}_{j}</SHORT-NAME><TYPE-TREF DEST="{tag}">/Types/{name}</TYPE-TREF></VARIABLE-DATA-PROTOTYPE>'
             for i, (tag, name) in enumerate(types)
             for j in range(2)
         )
-        interface = f'<SENDER-RECEIVER-INTERFACE><SHORT-NAME>Interface</SHORT-NAME><DATA-ELEMENTS>{variables}</DATA-ELEMENTS></SENDER-RECEIVER-INTERFACE>'
+        interface = ''.join(
+            f'<SENDER-RECEIVER-INTERFACE><SHORT-NAME>{name}</SHORT-NAME><DATA-ELEMENTS>{variables}</DATA-ELEMENTS></SENDER-RECEIVER-INTERFACE>' for name in interface_names
+        )
         return [write('types.arxml', 'Types', definitions), write('references.arxml', 'Interfaces', interface)]
 
     return create
 
 
-def run_script(monkeypatch, module, paths, options, expected_names):
+def run_script(monkeypatch, module, paths, options, expected_names, reference_count=2):
     documents = []
 
     def load(filepaths):
@@ -59,14 +61,15 @@ def run_script(monkeypatch, module, paths, options, expected_names):
         for name in expected_names:
             assert document.ref(('Types', name)) is not None
             references = document.ref_to_ref(('Types', name))
-            assert len(references) == 2
+            assert len(references) == reference_count
             assert all(row.xml_obj.value == f'/Types/{name}' for row in references)
 
 
 @pytest.mark.parametrize(('original', 'selected', 'expected'), [('Speed', 'Interface', 'Speed_Suffix'), ('Speed_Suffix', 'Other', 'Speed')])
-def test_suffix_script_refreshes_indexes_and_saves_both_files(monkeypatch, rename_files, original, selected, expected):
-    paths = rename_files([('APPLICATION-PRIMITIVE-DATA-TYPE', original)])
-    run_script(monkeypatch, chg_adt_name, paths, ['-s', '_Suffix', '-a', selected], [expected])
+@pytest.mark.parametrize('interface_names', [('Interface',), ('Interface', 'SharedInterface'), ('SharedInterface', 'Interface')])
+def test_suffix_script_refreshes_indexes_and_saves_both_files(monkeypatch, rename_files, original, selected, expected, interface_names):
+    paths = rename_files([('APPLICATION-PRIMITIVE-DATA-TYPE', original)], interface_names)
+    run_script(monkeypatch, chg_adt_name, paths, ['-s', '_Suffix', '-a', selected], [expected], reference_count=2 * len(interface_names))
 
 
 def test_prefix_script_refreshes_all_type_indexes_and_saves_both_files(monkeypatch, rename_files):

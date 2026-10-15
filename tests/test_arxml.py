@@ -9,7 +9,7 @@ import pytest
 from lxml import etree
 from xsdata.formats.dataclass.parsers import XmlParser
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml, ref2ref_str
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, ArxmlTransaction, IOArxml, ref2ref_str
 
 
 class TestArxml:
@@ -150,6 +150,34 @@ class TestArxml:
             obj.uuid = 'edited-without-serialization'
             obj.edited()
         assert 'edited-without-serialization' in file.index.uuids
+
+    def test_transaction_updates_and_saves_multiple_files_with_individual_refresh_flags(self):
+        other_path = self.path.with_name('other.arxml')
+        self._copy_with_distinct_paths(other_path)
+        document = IOArxml([self.path, other_path])
+        first = document.files[self.path]
+        second = document.files[other_path]
+        indexed = first.ar(self.autosar.SwBaseType)[0]
+        plain = second.ar(self.autosar.SwBaseType)[0]
+        second_index = second.index
+        original_bytes = {path: path.read_bytes() for path in document.files}
+
+        with ArxmlTransaction() as transaction:
+            indexed.xml_obj.uuid = 'transaction-uuid'
+            transaction.add(indexed.xml_obj)
+            plain.xml_obj.s = 'transaction-checksum'
+            transaction.add(plain.xml_obj, refresh_index=False)
+            assert 'transaction-uuid' not in first.index.uuids
+            assert not first._dirty and not second._dirty
+
+        assert first.index.uuids['transaction-uuid'] == indexed.ref
+        assert second.index is second_index
+        assert first._dirty and second._dirty
+        assert {path: path.read_bytes() for path in document.files} == original_bytes
+        document.flush_to_file()
+
+        assert ArxmlFile().parse_file(self.path).ref(indexed.ref).xml_obj.uuid == 'transaction-uuid'
+        assert ArxmlFile().parse_file(other_path).ref(plain.ref).xml_obj.s == 'transaction-checksum'
 
     def test_swc_arxml_can_be_parsed(self):
         fixture = Path(__file__).resolve().parents[1] / 'test' / 'SWC.arxml'

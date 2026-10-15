@@ -11,7 +11,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    from k3q_arxml import IOArxml, autosar, ref_str2ref, ref2ref_str
+    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, ref_str2ref, ref2ref_str
     from k3q_arxml.log import configure_logging
 
     for filepath in args.arxml_files:
@@ -29,47 +29,55 @@ def main() -> None:
     for obj in io_arxml.ar(clazz=autosar.ApplicationPrimitiveDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
-        i.short_name.value = f'ADT_{i.short_name.value}'
-        i.edited()
-        for reference in io_arxml.ref_to_ref(ref_interface):
-            ref_obj = reference.xml_obj
-            i = ref_str2ref(ref_obj.value)
-            ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
-            ref_obj.edited()
+        references = io_arxml.ref_to_ref(ref_interface)
+        with ArxmlTransaction() as transaction:
+            i.short_name.value = f'ADT_{i.short_name.value}'
+            transaction.add(i)
+            for reference in references:
+                ref_obj = reference.xml_obj
+                i = ref_str2ref(ref_obj.value)
+                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                transaction.add(ref_obj)
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationArrayDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
-        i.short_name.value = f'ADT_{i.short_name.value}'
-        i.edited()
-        for reference in io_arxml.ref_to_ref(ref_interface):
-            ref_obj = reference.xml_obj
-            i = ref_str2ref(ref_obj.value)
-            ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
-            ref_obj.edited()
+        references = io_arxml.ref_to_ref(ref_interface)
+        with ArxmlTransaction() as transaction:
+            i.short_name.value = f'ADT_{i.short_name.value}'
+            transaction.add(i)
+            for reference in references:
+                ref_obj = reference.xml_obj
+                i = ref_str2ref(ref_obj.value)
+                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                transaction.add(ref_obj)
 
     for obj in io_arxml.ar(clazz=autosar.ApplicationRecordDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
-        i.short_name.value = f'ADT_{i.short_name.value}'
-        i.edited()
-        for reference in io_arxml.ref_to_ref(ref_interface):
-            ref_obj = reference.xml_obj
-            i = ref_str2ref(ref_obj.value)
-            ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
-            ref_obj.edited()
+        references = io_arxml.ref_to_ref(ref_interface)
+        with ArxmlTransaction() as transaction:
+            i.short_name.value = f'ADT_{i.short_name.value}'
+            transaction.add(i)
+            for reference in references:
+                ref_obj = reference.xml_obj
+                i = ref_str2ref(ref_obj.value)
+                ref_obj.value = ref2ref_str([*i[:-1], f'ADT_{i[-1]}'])
+                transaction.add(ref_obj)
 
     # 修改idt
     for obj in io_arxml.ar(clazz=autosar.ImplementationDataType):
         ref_interface = obj.ref
         i = obj.xml_obj
-        i.short_name.value = f'IDT_{i.short_name.value}'
-        i.edited()
-        for reference in io_arxml.ref_to_ref(ref_interface):
-            ref_obj = reference.xml_obj
-            i = ref_str2ref(ref_obj.value)
-            ref_obj.value = ref2ref_str([*i[:-1], f'IDT_{i[-1]}'])
-            ref_obj.edited()
+        references = io_arxml.ref_to_ref(ref_interface)
+        with ArxmlTransaction() as transaction:
+            i.short_name.value = f'IDT_{i.short_name.value}'
+            transaction.add(i)
+            for reference in references:
+                ref_obj = reference.xml_obj
+                i = ref_str2ref(ref_obj.value)
+                ref_obj.value = ref2ref_str([*i[:-1], f'IDT_{i[-1]}'])
+                transaction.add(ref_obj)
 
     io_arxml.flush_to_file()
 

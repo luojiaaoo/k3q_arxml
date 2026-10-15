@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument('arxml_files', nargs='+', type=Path, help='arxml file list')
     args = parser.parse_args()
 
-    from k3q_arxml import IOArxml, autosar, logger, ref_str2ref
+    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, logger, ref_str2ref
     from k3q_arxml.log import configure_logging
 
     configure_logging('DEBUG')
@@ -37,14 +37,15 @@ def main() -> None:
                     continue
                 logger.debug(f'restore {ref_obj.value} to {ref_obj.value[: -len(suffix)]}')
                 ref_need_change = ref_str2ref(ref_obj.value)
-                # 修改ADT名字
+                # 先收集旧路径的引用，再统一修改和刷新。
                 adt = io_arxml.ref(ref_need_change).xml_obj
-                adt.short_name.value = adt.short_name.value[: -len(suffix)]
-                adt.edited()
-                # 修改用到这个ADT的引用
-                for reference in io_arxml.ref_to_ref(ref_need_change):
-                    reference.xml_obj.value = reference.xml_obj.value[: -len(suffix)]
-                    reference.xml_obj.edited()
+                references = io_arxml.ref_to_ref(ref_need_change)
+                with ArxmlTransaction() as transaction:
+                    adt.short_name.value = adt.short_name.value[: -len(suffix)]
+                    transaction.add(adt)
+                    for reference in references:
+                        reference.xml_obj.value = reference.xml_obj.value[: -len(suffix)]
+                        transaction.add(reference.xml_obj)
         else:
             for variable_data_prototype in arxml_obj_interface.xml_obj.data_elements.variable_data_prototype:
                 # 遍历多个VARIABLE-DATA-PROTOTYPE，每一个VARIABLE-DATA-PROTOTYPE对应一个adt
@@ -56,14 +57,15 @@ def main() -> None:
                     continue
                 logger.debug(f'change {ref_obj.value} to {ref_obj.value}{suffix}')
                 ref_need_change = ref_str2ref(ref_obj.value)
-                # 修改ADT名字
+                # 先收集旧路径的引用，再统一修改和刷新。
                 adt = io_arxml.ref(ref_need_change).xml_obj
-                adt.short_name.value += suffix
-                adt.edited()
-                # 修改用到这个ADT的引用
-                for reference in io_arxml.ref_to_ref(ref_need_change):
-                    reference.xml_obj.value += suffix
-                    reference.xml_obj.edited()
+                references = io_arxml.ref_to_ref(ref_need_change)
+                with ArxmlTransaction() as transaction:
+                    adt.short_name.value += suffix
+                    transaction.add(adt)
+                    for reference in references:
+                        reference.xml_obj.value += suffix
+                        transaction.add(reference.xml_obj)
 
     io_arxml.flush_to_file()
 

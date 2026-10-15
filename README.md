@@ -106,7 +106,7 @@ for reference in io_arxml.ref_to_ref(target):
 
 **修改任何 XML 对象后，都要调用该对象的 `edited()`，再继续查询或保存。直接赋值或调用 `set_dest()` 不会自动刷新。**
 
-涉及多处关联修改时，先查齐并保存相关节点和引用，完成全部修改后，再统一对修改过的对象调用 `edited()`。避免中途刷新后混用新旧路径，导致后续查询遗漏关联节点或引用。
+涉及多处关联修改时，先查齐并保存相关节点和引用，再使用 `ArxmlTransaction` 上下文收集需要刷新的 XML 对象，正常退出时统一调用 `edited()`。上下文内使用旧索引完成关联修改，退出后再查询新路径。
 
 增删、替换或移动节点时，在包含全部变化的共同具名父节点对象上调用 `edited()`。
 
@@ -120,7 +120,7 @@ if node is not None:
     io_arxml.flush_to_file()
 ```
 
-`edited(refresh_index=True)` 默认刷新索引并标记文件已修改；如果只修改普通属性，没有改变节点名称、UUID、引用或节点结构，可以调用 `edited(refresh_index=False)`，只标记文件已修改，省去索引刷新：
+`edited()` 默认刷新索引并标记文件已修改。**如果不确定修改是否影响索引，直接调用 `edited()`，不加参数即可。** 如果确认只修改普通属性，没有改变节点名称、UUID、引用或节点结构，可以调用 `edited(refresh_index=False)`，只标记文件已修改，省去索引刷新：
 
 ```python
 node.xml_obj.s = 'updated-checksum'  # 修改 XML 的 S 校验和属性。
@@ -130,16 +130,31 @@ io_arxml.flush_to_file()
 
 `edited()` 不会保存文件，完成修改并调用后，再用 `flush_to_file()` 将修改写回原文件。保存前请备份需要保留的文件。
 
-修改引用目标时，先查齐引用并使用 `set_dest()` 修改，再统一调用引用对象的 `edited()`：
+事务上下文的 `add()` 接收实际 XML 对象，即查询结果的 `.xml_obj`，也支持 `refresh_index` 参数，默认值为 `True`。例如，只修改校验和属性时可以这样写：
+
+```python
+from k3q_arxml import ArxmlTransaction
+
+with ArxmlTransaction() as transaction:
+    node.xml_obj.s = 'updated-checksum'
+    transaction.add(node.xml_obj, refresh_index=False)
+io_arxml.flush_to_file()
+```
+
+不确定是否影响索引时，使用 `transaction.add(node.xml_obj)` 即可。同一 XML 对象重复添加只调用一次 `edited()`；只要有一次添加要求刷新索引，就会刷新。增删、替换或移动节点时，添加包含全部变化的共同具名父节点对象。
+
+上下文正常退出时按添加顺序执行 `edited()`，之后再查询或保存。上下文内抛出异常时不执行刷新，也不撤销已发生的对象修改；退出时某次刷新失败会停止后续刷新，已经完成的刷新保留。事务上下文不会自动保存文件。
+
+修改引用目标时，先查齐引用并使用 `set_dest()` 修改，将引用对象加入上下文，退出时统一刷新：
 
 ```python
 old_target = ('AUTOSAR_Platform', 'BaseTypes', 'uint16')
 new_target = ('AUTOSAR_Platform', 'BaseTypes', 'sint16')
 references = io_arxml.ref_to_ref(old_target)
-for reference in references:
-    reference.set_dest(new_target)
-for reference in references:
-    reference.xml_obj.edited()
+with ArxmlTransaction() as transaction:
+    for reference in references:
+        reference.set_dest(new_target)
+        transaction.add(reference.xml_obj)
 io_arxml.flush_to_file()
 ```
 
@@ -154,14 +169,13 @@ node = io_arxml.ref(old_ref)
 if node is not None:
     # 先查出使用旧名称的全部引用，再统一修改。
     references = io_arxml.ref_to_ref(old_ref)
-    node.xml_obj.short_name.value = new_ref[-1]
-    for reference in references:
-        reference.set_dest(new_ref)
-
-    # 目标名称和所有引用都修改完成后，再统一刷新。
-    node.xml_obj.edited()
-    for reference in references:
-        reference.xml_obj.edited()
+    with ArxmlTransaction() as transaction:
+        node.xml_obj.short_name.value = new_ref[-1]
+        transaction.add(node.xml_obj)
+        for reference in references:
+            reference.set_dest(new_ref)
+            transaction.add(reference.xml_obj)
+    # 目标名称和所有引用都已修改并刷新，再保存文件。
     io_arxml.flush_to_file()
 
     print(io_arxml.ref(new_ref).short_name)  # 输出 uint16_custom。

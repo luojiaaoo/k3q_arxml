@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, ArxmlTransaction
 
 
 @dataclass
@@ -337,6 +337,84 @@ class TestScanRef:
             reference.edited()
         for current, old in zip((file.index.objects, file.index.references, file.index.uuids), previous, strict=True):
             assert current is old
+
+    def test_transaction_defers_related_edits_across_files(self):
+        target = NamedNode(Text('Target'), uuid='old-id')
+        reference = Reference('/Target')
+        target_file = self.scan(target)
+        source_file = ArxmlFile().parse_autosar(Path('source.arxml'), NamedNode(Text('Source'), child=reference))
+        previous_target = target_file.index
+        previous_source = source_file.index
+
+        with ArxmlTransaction() as transaction:
+            target.short_name.value = 'Renamed'
+            target.uuid = 'new-id'
+            transaction.add(target)
+            reference.value = '/Renamed'
+            transaction.add(reference)
+            assert target_file.index is previous_target
+            assert source_file.index is previous_source
+            assert not target_file._dirty
+            assert not source_file._dirty
+
+        assert target_file.ref(('Target',)) is None
+        assert target_file.ref(('Renamed',)).xml_obj is target
+        assert target_file.index.uuids == {'new-id': ('Renamed',)}
+        assert ('Target',) not in source_file.index.references
+        assert source_file.index.references[('Renamed',)][0].xml_obj is reference
+        assert target_file._dirty and source_file._dirty
+
+    @pytest.mark.parametrize('flags', [(False, False), (False, True), (True, False)])
+    def test_transaction_duplicate_add_keeps_refresh_requirement(self, flags):
+        obj = NamedNode(Text('Package'), child=Text('before'))
+        file = self.scan(obj)
+        previous = file.index
+
+        with patch.object(file, 'update_node', wraps=file.update_node) as update:
+            with ArxmlTransaction() as transaction:
+                obj.child.value = 'after'
+                for refresh_index in flags:
+                    transaction.add(obj, refresh_index=refresh_index)
+                update.assert_not_called()
+            assert update.call_count == int(any(flags))
+
+        assert file._dirty
+        assert (file.index is previous) == (not any(flags))
+
+    def test_transaction_body_exception_skips_refresh_without_reverting_objects(self):
+        obj = NamedNode(Text('Package'))
+        file = self.scan(obj)
+        previous = file.index
+
+        with pytest.raises(RuntimeError, match='edit failed'):
+            with ArxmlTransaction() as transaction:
+                transaction.add(obj)
+                obj.short_name.value = 'Renamed'
+                raise RuntimeError('edit failed')
+
+        assert obj.short_name.value == 'Renamed'
+        assert file.index is previous
+        assert not file._dirty
+
+    def test_transaction_refresh_failure_keeps_completed_updates_and_stops(self):
+        first = NamedNode(Text('First'))
+        invalid = NamedNode(Text('Invalid'), child=Reference('/Target'))
+        last = NamedNode(Text('Last'))
+        file = self.scan(Container(content=[first, invalid, last]))
+
+        with pytest.raises(ValueError, match='不支持相对引用'):
+            with ArxmlTransaction() as transaction:
+                first.short_name.value = 'RenamedFirst'
+                transaction.add(first)
+                invalid.child.value = 'relative'
+                transaction.add(invalid)
+                last.short_name.value = 'RenamedLast'
+                transaction.add(last)
+
+        assert file.ref(('RenamedFirst',)).xml_obj is first
+        assert file.ref(('Last',)).xml_obj is last
+        assert file.ref(('RenamedLast',)) is None
+        assert file.index.references[('Target',)][0].xml_obj is invalid.child
 
     def test_edit_scans_only_its_subtree_and_keeps_other_wrappers(self):
         changed = NamedNode(Text('A'), child=Reference('/Shared'))
