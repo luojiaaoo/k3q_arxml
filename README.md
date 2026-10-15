@@ -13,9 +13,9 @@
 
 极简的 ARXML 编辑库，使用 Python、xsdata 和 lxml 实现。
 
-代码分三层：`ArxmlNamedNode` 包装一个节点，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。
+代码分三层：`ArxmlNode` 保存节点所在文件的路径和实际 XML 对象，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。`ArxmlNamedNode` 和 `ArxmlRefNode` 都继承 `ArxmlNode`，分别表示具名节点和引用节点。
 
-项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlNamedNode`、`ArxmlRefNode` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
+项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlNode`、`ArxmlNamedNode`、`ArxmlRefNode` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
 
 ## 安装与生成类型
 
@@ -69,8 +69,8 @@ if package is not None:
 # 查找文件中哪些位置使用了 uint8 这个数据类型。
 references = io_arxml.ref_to_ref(('AUTOSAR_Platform', 'BaseTypes', 'uint8'))
 for reference in references:
-    # xml_obj.value 是目标路径，owner_ref 和 filename 标明引用出现的位置。
-    print(reference.xml_obj.value, reference.owner_ref, reference.filename)
+    # xml_obj.value 是目标路径，owner_ref 和 filepath 标明引用出现的位置。
+    print(reference.xml_obj.value, reference.owner_ref, reference.filepath)
 
 # 如果修改了名称、引用或对象结构，重新扫描后再继续查询。
 # io_arxml.scan_ref()
@@ -86,10 +86,10 @@ io_arxml.print(print_filepath=Path('model.txt'))
 
 1. `autosar.SwBaseType` 表示要查找的节点类型，对应 XML 中的 `<SW-BASE-TYPE>`。
 2. `ar()` 返回对象列表，每一项只对应一个文件里的一个节点。
-3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是路径，`result.file` 是所属文件。
+3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径，`result.filepath` 是所在文件的路径；需要文件对象时使用 `io_arxml.get_file(result.filepath)`。
 4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
 
-文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filename` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
+文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
 
 使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件，已加载的路径会被拒绝；解析失败不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
 
@@ -106,11 +106,10 @@ file = ArxmlFile().parse_file(Path('test/ThrottlePositionControlComposition.arxm
 for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
 
-# 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存节点包装和来源路径。
+# 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存实际引用节点和来源路径。
 for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
-    node = reference.node
-    print(node.xml_obj.value, reference.owner_ref, reference.filename)
-    # node.file 是当前文件，node.ref 与 owner_ref 相同；修改 node.xml_obj.value 可更新引用目标。
+    print(reference.xml_obj.value, reference.owner_ref, reference.filepath)
+    # owner_ref 是包含该引用的具名对象路径；修改 reference.xml_obj.value 可更新引用目标。
 
 # 修改名称或引用后调用 file.scan_ref() 更新索引，调用 file.save() 保存。
 ```

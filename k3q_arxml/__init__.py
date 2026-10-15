@@ -3,6 +3,6 @@
 from .arxml_file import ArxmlFile, get_xml_metadata, ref_str2ref, ref2ref_str
 from .k3q_arxml import IOArxml
 from .log import logger
-from .schemas import ArxmlNamedNode, ArxmlRefNode
+from .schemas import ArxmlNamedNode, ArxmlNode, ArxmlRefNode
 
-__all__ = ['ArxmlFile', 'ArxmlNamedNode', 'ArxmlRefNode', 'IOArxml', 'get_xml_metadata', 'logger', 'ref_str2ref', 'ref2ref_str']
+__all__ = ['ArxmlFile', 'ArxmlNamedNode', 'ArxmlNode', 'ArxmlRefNode', 'IOArxml', 'get_xml_metadata', 'logger', 'ref_str2ref', 'ref2ref_str']

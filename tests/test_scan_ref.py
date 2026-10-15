@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlRefNode
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode
 
 
 @dataclass(slots=True)
@@ -79,20 +79,17 @@ class ScanRefTests(unittest.TestCase):
         file = self.scan(root)
 
         self.assertEqual(list(file.objects), [('Package',), ('Package', 'Child')])
+        self.assertTrue(all(isinstance(node, ArxmlNode) for node in file.objects.values()))
         self.assertIs(file.ref(('Package',)).xml_obj, package)
         self.assertIs(file.ref(('Package', 'Child')).xml_obj, child)
         rows = file.references[('Types', 'Target')]
         self.assertEqual([row.owner_ref for row in rows], [('Package',), ('Package', 'Child'), ('Package',)])
         for row, expected in zip(rows, (first, second, third), strict=True):
             self.assertIsInstance(row, ArxmlRefNode)
-            node = row.node
-            self.assertIsInstance(node, ArxmlNamedNode)
-            self.assertIs(node.xml_obj, expected)
+            self.assertIsInstance(row, ArxmlNode)
+            self.assertNotIsInstance(row, ArxmlNamedNode)
             self.assertIs(row.xml_obj, expected)
-            self.assertIs(node.file, file)
-            self.assertEqual(node.ref, row.owner_ref)
-            self.assertEqual(node.filename, Path('scan.arxml').resolve())
-            self.assertEqual(row.filename, node.filename)
+            self.assertEqual(row.filepath, Path('scan.arxml').resolve())
         self.assertEqual(file.uuids, {'child-id': ('Package', 'Child')})
 
     def test_only_declared_child_fields_and_ref_instances_are_indexed(self):
@@ -119,7 +116,7 @@ class ScanRefTests(unittest.TestCase):
 
         rows = file.references[('Unloaded', 'Target')]
         self.assertEqual([row.owner_ref for row in rows], [('A',), ('A',), ('B',)])
-        self.assertTrue(all(row.node.xml_obj is reference for row in rows))
+        self.assertTrue(all(row.xml_obj is reference for row in rows))
 
     def test_uuid_and_duplicate_path_overwrite_order_is_preserved(self):
         first = NamedNode(Text('Same'), uuid='duplicate')
@@ -145,7 +142,7 @@ class ScanRefTests(unittest.TestCase):
 
         self.assertIsNone(file.ref(('Package', 'Old')))
         self.assertIs(file.ref(('Package', 'New')).xml_obj, target)
-        self.assertEqual(file.references, {('Package', 'New'): [ArxmlRefNode(ArxmlNamedNode(reference, file, ('Package',)), ('Package',))]})
+        self.assertEqual(file.references, {('Package', 'New'): [ArxmlRefNode(filepath=file.filepath, xml_obj=reference, owner_ref=('Package',))]})
         self.assertEqual(file.uuids, {'target-id': ('Package', 'New')})
 
     def test_invalid_references_report_location_and_keep_previous_indexes(self):
@@ -179,7 +176,7 @@ class ScanRefTests(unittest.TestCase):
 
         file = self.scan(NamedNode(Text('Package'), child=nested))
 
-        self.assertIs(file.references[('Target',)][0].node.xml_obj, reference)
+        self.assertIs(file.references[('Target',)][0].xml_obj, reference)
         self.assertEqual(file.references[('Target',)][0].owner_ref, ('Package',))
 
     def test_wrapper_failure_does_not_publish_partial_indexes(self):
@@ -195,17 +192,15 @@ class ScanRefTests(unittest.TestCase):
         reference = Reference('/Old')
         file = self.scan(Container(value=reference))
         row = file.references[('Old',)][0]
-        node = row.node
-        self.assertIs(node.xml_obj, reference)
-        self.assertIs(node.file, file)
-        self.assertEqual(node.ref, ())
+        self.assertIs(row.xml_obj, reference)
+        self.assertEqual(row.filepath, file.filepath)
         self.assertEqual(row.owner_ref, ())
 
-        node.xml_obj.value = '/New'
+        row.xml_obj.value = '/New'
         file.scan_ref()
 
         self.assertNotIn(('Old',), file.references)
-        self.assertIs(file.references[('New',)][0].node.xml_obj, reference)
+        self.assertIs(file.references[('New',)][0].xml_obj, reference)
 
     def test_reference_record_failure_keeps_previous_indexes(self):
         file = self.scan(Container(value=Reference('/Target')))
@@ -216,11 +211,9 @@ class ScanRefTests(unittest.TestCase):
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
             self.assertIs(current, old)
 
-    def test_reference_wrapper_failure_keeps_previous_indexes(self):
-        file = self.scan(Container(value=Reference('/Target')))
-        previous = file.objects, file.references, file.uuids
-        with patch('k3q_arxml.arxml_file.ArxmlNamedNode', side_effect=RuntimeError('reference wrapper failure')):
-            with self.assertRaisesRegex(RuntimeError, 'reference wrapper failure'):
-                file.scan_ref()
-        for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
-            self.assertIs(current, old)
+    def test_reference_does_not_use_named_node_wrapper(self):
+        reference = Reference('/Target')
+        with patch('k3q_arxml.arxml_file.ArxmlNamedNode', side_effect=RuntimeError('unexpected named node wrapper')):
+            file = self.scan(Container(value=reference))
+        self.assertEqual(file.objects, {})
+        self.assertIs(file.references[('Target',)][0].xml_obj, reference)

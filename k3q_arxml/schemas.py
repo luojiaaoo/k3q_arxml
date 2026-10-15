@@ -10,11 +10,10 @@ from typing import TYPE_CHECKING, Generic, Tuple, TypeAlias, TypeVar, cast
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from .arxml_file import ArxmlFile
-    from .autosar import Ref as AutosarRef
+    from .autosar import Ref  # noqa: F401 -- 用于基类的前向引用。
 
-Ref: TypeAlias = Tuple[str, ...]
-Filename: TypeAlias = Path
+TupleRef: TypeAlias = Tuple[str, ...]
+Filepath: TypeAlias = Path
 Uuid: TypeAlias = str
 T = TypeVar('T')
 
@@ -45,16 +44,18 @@ class ArxmlHeader(BaseModel):
 
 
 @dataclass
-class ArxmlNamedNode(Generic[T]):
-    """一个文件中的一个 ARXML 对象。"""
+class ArxmlNode(Generic[T]):
+    """保存 ARXML 节点所在文件的路径和实际 XML 对象。"""
 
+    filepath: Filepath
     xml_obj: T
-    file: ArxmlFile
-    ref: Ref
 
-    @property
-    def filename(self) -> Filename:
-        return self.file.filepath
+
+@dataclass
+class ArxmlNamedNode(ArxmlNode[T]):
+    """带有 SHORT-NAME 的 ARXML 节点，ref 为其完整路径。"""
+
+    ref: TupleRef
 
     @property
     def short_name(self) -> str:
@@ -62,25 +63,16 @@ class ArxmlNamedNode(Generic[T]):
 
 
 @dataclass
-class ArxmlRefNode:
-    """一处反向引用，保存引用节点包装及其来源位置。
+class ArxmlRefNode(ArxmlNode['Ref']):
+    """一处反向引用，保存实际 XML 引用节点及其来源位置。
 
     Attributes:
-        node: 包装实际 XML 引用节点的 ArxmlNamedNode，通过 .xml_obj.value 修改引用目标。
+        xml_obj: 实际 XML 引用节点，通过 .xml_obj.value 修改引用目标。
+        filepath: 引用所在文件的路径。
         owner_ref: 包含该引用的最近具名对象的路径。
     """
 
-    node: ArxmlNamedNode[AutosarRef]
-    owner_ref: Ref
-
-    @property
-    def xml_obj(self) -> AutosarRef:
-        """实际 XML 引用节点，通过 .value 读写目标路径字符串。"""
-        return self.node.xml_obj
-
-    @property
-    def filename(self) -> Filename:
-        return self.node.filename
+    owner_ref: TupleRef
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent

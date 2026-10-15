@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import Field, fields, is_dataclass
-from pathlib import Path
 from typing import Any, cast
 
 from lxml import etree
@@ -15,7 +14,7 @@ from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .log import logger
-from .schemas import ArxmlFormat, ArxmlHeader, ArxmlNamedNode, ArxmlRefNode, Filename, Ref, T, Uuid
+from .schemas import ArxmlFormat, ArxmlHeader, ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef, Uuid
 
 try:
     from .autosar import SCHEMA_VERSION, Autosar
@@ -31,12 +30,12 @@ def get_xml_metadata(schema_version: str) -> dict[str, str]:
     return {'xml_namespace': xml_namespace, 'xml_schema_location': xml_schema_location}
 
 
-def ref_str2ref(ref_str: str) -> Ref:
+def ref_str2ref(ref_str: str) -> TupleRef:
     """将 /Package/Type 形式的绝对引用路径转换为 ('Package', 'Type') 元组。"""
     return tuple(ref_str.split('/')[1:])
 
 
-def ref2ref_str(ref: Ref) -> str:
+def ref2ref_str(ref: TupleRef) -> str:
     """将 ('Package', 'Type') 形式的路径元组转换为 /Package/Type 引用字符串。"""
     return '/' + '/'.join(ref)
 
@@ -45,13 +44,13 @@ class ArxmlFile:
     """负责单个文件的解析、索引和回写。"""
 
     def __init__(self):
-        self.filepath: Filename | None = None  # 解析或创建文件后保存为绝对路径。
+        self.filepath: Filepath | None = None  # 解析或创建文件后保存为绝对路径。
         self.parse_schema_version = SCHEMA_VERSION  # 当前绑定用于解析的 AUTOSAR 版本。
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
-        self.objects: dict[Ref, ArxmlNamedNode[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
-        self.references: dict[Ref, list[ArxmlRefNode]] = {}  # 按目标路径索引的引用记录，包含节点包装和来源路径。
-        self.uuids: dict[Uuid, Ref] = {}  # 按 UUID 索引的对象路径。
+        self.objects: dict[TupleRef, ArxmlNamedNode[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
+        self.references: dict[TupleRef, list[ArxmlRefNode]] = {}  # 按目标路径索引的引用节点，包含所在文件和来源路径。
+        self.uuids: dict[Uuid, TupleRef] = {}  # 按 UUID 索引的对象路径。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
         self.root: Autosar  # 当前文件对应的 AUTOSAR 根对象。
@@ -89,7 +88,7 @@ class ArxmlFile:
         header = ArxmlHeader(xml_namespace=namespace, xml_schema_location=schema_location)
         return format_info, header
 
-    def parse_file(self, filepath: Filename) -> ArxmlFile:
+    def parse_file(self, filepath: Filepath) -> ArxmlFile:
         self.filepath = filepath.resolve()
         logger.info('>> parsing {}', self.filepath)
         self.format, self.header = self.read_file_metadata()
@@ -109,7 +108,7 @@ class ArxmlFile:
 
     def parse_autosar(
         self,
-        filepath: Filename,
+        filepath: Filepath,
         autosar_obj: Autosar,
         xml_namespace: str | None = None,
         xml_schema_location: str | None = None,
@@ -133,11 +132,12 @@ class ArxmlFile:
         先在局部变量中完成扫描和 ArxmlNamedNode 包装，全部成功后再替换文件上的索引。
         保留旧索引不等于撤销用户对 root 内对象的修改；索引中的节点始终是原对象。
         """
+        assert self.filepath is not None
         objects, references, uuids = self.__scan_arobj_ref(self.root)
-        wrapped_objects = {ref: ArxmlNamedNode(obj, self, ref) for ref, obj in objects.items()}
+        wrapped_objects = {ref: ArxmlNamedNode(filepath=self.filepath, xml_obj=obj, ref=ref) for ref, obj in objects.items()}
         self.objects, self.references, self.uuids = wrapped_objects, references, uuids
 
-    def ref(self, ref: Ref) -> ArxmlNamedNode[Any] | None:
+    def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
         """按完整 AUTOSAR 路径查找当前文件中的对象。
 
         Args:
@@ -152,7 +152,7 @@ class ArxmlFile:
         """
         return self.objects.get(ref)
 
-    def ar(self, clazz: type[T], ref_prefix: Ref = ()) -> list[ArxmlNamedNode[T]]:
+    def ar(self, clazz: type[T], ref_prefix: TupleRef = ()) -> list[ArxmlNamedNode[T]]:
         """按 XML 对象类型和路径前缀查询当前文件中的对象。
 
         Args:
@@ -195,24 +195,24 @@ class ArxmlFile:
             self._field_cache[node_type] = fields(node_type)
         return self._field_cache[node_type]
 
-    def __scan_arobj_ref(self, obj: Autosar) -> tuple[dict[Ref, Any], dict[Ref, list[ArxmlRefNode]], dict[Uuid, Ref]]:
+    def __scan_arobj_ref(self, obj: Autosar) -> tuple[dict[TupleRef, Any], dict[TupleRef, list[ArxmlRefNode]], dict[Uuid, TupleRef]]:
         """遍历 dataclass 声明字段并递归扫描，返回对象、反向引用和 UUID 三组索引。
 
         路径只追加 SHORT-NAME，无名容器沿用父路径。
         例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
-            references[('Types', 'Speed')] = [ArxmlRefNode(ArxmlNamedNode(引用节点, self, ('Pkg', 'Owner')), ('Pkg', 'Owner'))]
-        记录的 .node 包装原引用节点，可通过 .node.xml_obj.value 或 .xml_obj.value 修改引用并回写；这里只登记目标路径，
+            references[('Types', 'Speed')] = [ArxmlRefNode(filepath=self.filepath, xml_obj=引用节点, owner_ref=('Pkg', 'Owner'))]
+        记录的 .xml_obj 保留原引用节点，可通过 .xml_obj.value 修改引用并回写；这里只登记目标路径，
         不查找目标对象，也不沿引用跳到其他对象。
 
         按 XML 树的包含关系递归，不做循环检测。使用 Python 默认递归深度限制。
         """
-        from .autosar import Ref as AutosarRef
+        from .autosar import Ref
 
-        objects: dict[Ref, Any] = {}
-        references: dict[Ref, list[ArxmlRefNode]] = {}
-        uuids: dict[Uuid, Ref] = {}
+        objects: dict[TupleRef, Any] = {}
+        references: dict[TupleRef, list[ArxmlRefNode]] = {}
+        uuids: dict[Uuid, TupleRef] = {}
 
-        def _object_ref(node: Any, ref: Ref) -> Ref:
+        def _object_ref(node: Any, ref: TupleRef) -> TupleRef:
             """登记具名对象及其 UUID，并返回包含当前 SHORT-NAME 的新路径。"""
 
             # Identifier.value 才是 SHORT-NAME 文本；只检查组成路径所需的基本条件。
@@ -231,7 +231,7 @@ class ArxmlFile:
                 uuids[uuid] = named_ref
             return named_ref
 
-        def _add_reference(node: AutosarRef, ref: Ref) -> None:
+        def _add_reference(node: Ref, ref: TupleRef) -> None:
             """将一处 XML 引用加入按目标路径组织的反向引用索引。"""
 
             value = node.value
@@ -244,9 +244,10 @@ class ArxmlFile:
                 raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
             # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
             # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
-            references.setdefault(target_ref, []).append(ArxmlRefNode(node=ArxmlNamedNode(node, self, ref), owner_ref=ref))
+            assert self.filepath is not None
+            references.setdefault(target_ref, []).append(ArxmlRefNode(filepath=self.filepath, xml_obj=node, owner_ref=ref))
 
-        def _scan(node: Any, ref: Ref) -> None:
+        def _scan(node: Any, ref: TupleRef) -> None:
             if isinstance(node, (list, tuple)):
                 # 列表的话，继续向下搜索
                 for child in node:
@@ -262,7 +263,7 @@ class ArxmlFile:
                 ref = _object_ref(node, ref)
 
             # 发现是引用节点，登记反向引用
-            if isinstance(node, AutosarRef):
+            if isinstance(node, Ref):
                 _add_reference(node, ref)
 
             # fields() 包含继承字段，普通和 slots dataclass 均适用；不会遍历临时 Python 属性。
