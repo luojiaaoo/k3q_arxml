@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument('arxml_files', nargs='+', type=Path, help='arxml file list')
     args = parser.parse_args()
 
-    from k3q_arxml import IOArxml, autosar, logger
+    from k3q_arxml import IOArxml, autosar, logger, ref_str2ref
     from k3q_arxml.log import configure_logging
 
     configure_logging('DEBUG')
@@ -36,7 +36,7 @@ def main() -> None:
                     logger.debug(f'{ref_obj.value} has been changed before')
                     continue
                 logger.debug(f'restore {ref_obj.value} to {ref_obj.value[: -len(suffix)]}')
-                ref_need_change = io_arxml.ref_str2ref(ref_obj.value)
+                ref_need_change = ref_str2ref(ref_obj.value)
                 # 修改ADT名字
                 io_arxml.ref(ref_need_change).xml_obj.short_name.value = io_arxml.ref(ref_need_change).xml_obj.short_name.value[: -len(suffix)]
                 # 修改用到这个ADT的引用
@@ -52,7 +52,7 @@ def main() -> None:
                     logger.debug(f'{ref_obj.value} has been changed')
                     continue
                 logger.debug(f'change {ref_obj.value} to {ref_obj.value}{suffix}')
-                ref_need_change = io_arxml.ref_str2ref(ref_obj.value)
+                ref_need_change = ref_str2ref(ref_obj.value)
                 # 修改ADT名字
                 io_arxml.ref(ref_need_change).xml_obj.short_name.value += suffix
                 # 修改用到这个ADT的引用

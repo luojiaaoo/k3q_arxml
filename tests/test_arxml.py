@@ -10,7 +10,7 @@ from unittest.mock import patch
 from lxml import etree
 from xsdata.formats.dataclass.parsers import XmlParser
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml, ref2ref_str
 
 
 class ArxmlTests(unittest.TestCase):
@@ -290,7 +290,7 @@ class ArxmlTests(unittest.TestCase):
         references = document.ref_to_ref(ref)
         target.xml_obj.short_name.value = updated_ref[-1]
         for reference in references:
-            reference.xml_obj.value = document.ref2ref_str(updated_ref)
+            reference.xml_obj.value = ref2ref_str(updated_ref)
         document.get_file(target.filepath).update_node(target)
         for filepath, owner_ref in {(reference.filepath, reference.owner_ref) for reference in references}:
             file = document.get_file(filepath)

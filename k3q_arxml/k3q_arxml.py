@@ -5,7 +5,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from .arxml_file import ArxmlFile, ref_str2ref, ref2ref_str
+from .arxml_file import ArxmlFile, ref2ref_str
 from .schemas import ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
 
 
@@ -100,6 +100,3 @@ class IOArxml:
                 for file in self.files.values():
                     stream.write(f'=== {file.filepath} ===\n')
                     pprint.pprint(file.root, stream=stream, width=40, indent=1, underscore_numbers=True)
-
-    ref_str2ref = staticmethod(ref_str2ref)
-    ref2ref_str = staticmethod(ref2ref_str)
