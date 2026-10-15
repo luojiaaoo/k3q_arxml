@@ -50,7 +50,7 @@ class ArxmlHeader(BaseModel):
 
 @dataclass
 class ArxmlNode(Generic[T]):
-    """保存实际 XML 对象；对象的 arxml_filepath 是所属文件的绝对路径。"""
+    """保存实际 XML 对象；解析后的对象可调用 edited() 更新所属文件的索引。"""
 
     xml_obj: T
 

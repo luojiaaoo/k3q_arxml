@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import Field, fields, is_dataclass
+from functools import partial
 from typing import Any, cast
 
 from lxml import etree
@@ -209,7 +210,7 @@ class ArxmlFile:
             找到时返回 ArxmlNamedNode，通过其 .xml_obj 访问实际 XML 对象；
             路径不存在时返回 None。
 
-        直接修改节点后，调用 update_node(node) 增量更新索引再查询；使用 IOArxml.edit() 时退出后自动完成。
+        直接修改节点后，调用 node.xml_obj.edited() 增量更新索引再查询。
         """
         return self.objects.get(ref)
 
@@ -226,7 +227,7 @@ class ArxmlFile:
             同时满足类型和路径条件的 ArxmlNamedNode 列表，无匹配时返回空列表。
             每项的 .xml_obj 是实际 XML 对象，可直接读取或修改其属性。
 
-        直接修改节点后，调用 update_node(node) 增量更新索引再查询；使用 IOArxml.edit() 时退出后自动完成。
+        直接修改节点后，调用 node.xml_obj.edited() 增量更新索引再查询。
         """
         matches: list[ArxmlNamedNode[T]] = []
         prefix_length = len(ref_prefix)
@@ -292,6 +293,16 @@ class ArxmlFile:
         references: dict[TupleRef, list[ArxmlRefNode]] = {}
         uuids: dict[Uuid, TupleRef] = {}
 
+        def _edited_xml_obj(xml_obj: T) -> T:
+            """向上找到最近的具名节点，更新其索引后返回原对象。"""
+            named = xml_obj
+            while named is not None and not hasattr(named, 'short_name'):
+                named = named.arxml_parent
+            if named is None:
+                raise ValueError('当前节点没有具名祖先，无法增量更新索引')
+            self.update_node(next(wrapped for wrapped in self.objects.values() if wrapped.xml_obj is named))
+            return xml_obj
+
         def _object_ref(node: Any, ref: TupleRef) -> TupleRef:
             """登记具名对象及其 UUID，并返回包含当前 SHORT-NAME 的新路径。"""
 
@@ -337,14 +348,16 @@ class ArxmlFile:
             if isinstance(node, type) or not is_dataclass(node):
                 return
 
+            if not hasattr(node, '__dict__'):
+                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 没有 __dict__，无法添加 arxml_parent 和 edited')
             # 注入的属性不能覆盖数据类声明的 XML 字段。
             if 'arxml_parent' in type(node).__dataclass_fields__:
                 raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_parent 字段，无法用于父节点')
-            if 'arxml_filepath' in type(node).__dataclass_fields__:
-                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 arxml_filepath 字段，无法用于文件路径')
+            if 'edited' in type(node).__dataclass_fields__:
+                raise TypeError(f'{self.filepath}: {type(node).__qualname__} 已声明 edited 字段，无法用于索引更新')
 
             node.arxml_parent = parent
-            node.arxml_filepath = self.filepath
+            node.edited = partial(_edited_xml_obj, node)
 
             # 发现是路径节点，登记对象和 UUID
             if hasattr(node, 'short_name'):

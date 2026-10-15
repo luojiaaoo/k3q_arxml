@@ -13,7 +13,7 @@
 
 极简的 ARXML 编辑库，使用 Python、xsdata 和 lxml 实现。
 
-代码分三层：`ArxmlNode` 保存节点所在文件的路径和实际 XML 对象，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。`ArxmlNamedNode` 和 `ArxmlRefNode` 都继承 `ArxmlNode`，分别表示具名节点和引用节点。
+代码分三层：`ArxmlNode` 包装实际 XML 对象，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。`ArxmlNamedNode` 和 `ArxmlRefNode` 都继承 `ArxmlNode`，分别表示具名节点和引用节点。
 
 项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlNode`、`ArxmlNamedNode`、`ArxmlRefNode` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
 
@@ -69,10 +69,10 @@ if package is not None:
 # 查找文件中哪些位置使用了 uint8 这个数据类型。
 references = io_arxml.ref_to_ref(('AUTOSAR_Platform', 'BaseTypes', 'uint8'))
 for reference in references:
-    # xml_obj.value 是目标路径，owner_ref 和 xml_obj.arxml_filepath 标明引用出现的位置。
-    print(reference.xml_obj.value, reference.owner_ref, reference.xml_obj.arxml_filepath)
+    # xml_obj.value 是目标路径，owner_ref 是引用所在具名节点的路径。
+    print(reference.xml_obj.value, reference.owner_ref)
 
-# 后续通过 io_arxml.edit(result) 编辑节点，退出时自动更新该子树的索引。
+# 修改数据类对象后，调用其 edited() 更新最近具名节点的索引。
 
 # 把读取到的全部内容输出到 model.txt，方便查看。
 io_arxml.print(print_filepath=Path('model.txt'))
@@ -85,25 +85,25 @@ io_arxml.print(print_filepath=Path('model.txt'))
 
 1. `autosar.SwBaseType` 表示要查找的节点类型，对应 XML 中的 `<SW-BASE-TYPE>`。
 2. `ar()` 返回对象列表，每一项只对应一个文件里的一个节点。
-3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径，`result.xml_obj.arxml_filepath` 是所在文件的绝对路径；需要文件对象时使用 `io_arxml.files[result.xml_obj.arxml_filepath]`。
+3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是节点路径。
 4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
 
 每个文件加载时由 `scan_ref()` 全量扫描一次，建立 `objects`、`references` 和 `uuids` 三份初始索引。后续节点编辑使用 `update_node()` 增量维护已有索引。
 
-`result.content` 按需导出当前节点及其子节点的 XML 字符串，不缓存完整文本。使用 `io_arxml.edit(result)` 以任意层级的具名节点为根修改其 XML 对象，退出上下文后自动调用文件层 `update_node(result)` 更新该子树的三份索引：
+`result.content` 按需导出当前节点及其子节点的 XML 字符串，不缓存完整文本。修改 XML 对象后调用对象的 `edited()`，更新最近具名节点及其子树的索引：
 
 ```python
 result = io_arxml.ar(autosar.SwBaseType)[0]
-with io_arxml.edit(result) as base_type:
-    base_type.uuid = 'updated-base-type'  # 修改这个 SW-BASE-TYPE 节点的 UUID 属性。
+base_type = result.xml_obj
+base_type.uuid = 'updated-base-type'  # 修改这个 SW-BASE-TYPE 节点的 UUID 属性。
+base_type.edited()  # 更新所属文件的对象、引用和 UUID 索引；返回 base_type 自己。
 
-file = io_arxml.files[result.xml_obj.arxml_filepath]
-print(file.uuids['updated-base-type'])  # 上下文退出后，UUID 索引已经更新。
+print(io_arxml.ref(result.ref).xml_obj.uuid)  # 再次查询可读到新 UUID。
 ```
 
-编辑时使用从当前文件查询得到、仍在 XML 树中的有效节点包装。上下文返回实际 XML 对象，IO 层通过节点的 `.xml_obj.arxml_filepath` 定位已加载文件，再调用文件层的 `update_node(result)` 局部更新索引。单独使用 `ArxmlFile` 时，也可以在修改后直接调用 `file.update_node(result)`。修改范围限于编辑根节点及其子树；删除或移动编辑根本身时，应以包含全部变化的共同具名祖先为编辑根。新的名称、引用和 UUID 查询应放在上下文退出后；扫描结果使用新包装，更新成功后同步传入 `result` 的 `.ref`，可继续编辑同一个根对象。后续编辑子节点时，重新调用 `ref()` / `ar()` 获取其新包装。需要保留旧路径时，应在修改前另存 `old_ref = result.ref`。其他分支的节点包装保持有效。异常退出同样刷新已经发生的修改，不自动回滚；刷新失败或路径与其他分支冲突时保留上一轮索引和传入节点的路径。保存到磁盘仍需调用 `file.save()` 或 `io_arxml.flush_to_file()`；后者只保存已成功更新索引且尚未保存的文件。直接修改 `file.format` 等文件元数据后，调用 `file.save()` 保存。
+解析时会为每个数据类对象设置 `.arxml_parent` 和 `.edited()`。在没有 `SHORT-NAME` 的对象上调用 `edited()`，会沿父对象向上找到最近的具名节点；例如修改引用的 `.value` 后，可以直接调用该引用对象的 `edited()`。该方法完成索引更新并返回调用它的对象。增删或移动具名节点本身时，应在包含全部变化的共同具名祖先上调用 `edited()`。若对象没有具名祖先，需由文件层调用 `scan_ref()` 全量重建。查询新名称和引用应在 `edited()` 成功后进行；旧包装的 `.ref` 可能仍是上次查询时的路径，重新调用 `ref()` / `ar()` 获取当前包装。重命名仍需自行同步引用文本。保存到磁盘需调用 `file.save()` 或 `io_arxml.flush_to_file()`。
 
-文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、数据类对象的 `.arxml_filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。解析及增量扫描时会为每个数据类对象设置 `.arxml_parent` 和 `.arxml_filepath`；包装对象不再保存独立的文件路径。
+文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath` 和 `io_arxml.files` 的键均为绝对路径 `Path`。需要文件对象时，通过已知路径从 `io_arxml.files` 获取。
 
 使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件；重复加载同一文件或与已加载文件存在相同对象路径时抛出异常，文件不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
 
@@ -124,17 +124,17 @@ for result in file.ar(autosar.SwBaseType):
 
 # 查看指向 uint8 数据类型的引用；每项 ArxmlRefNode 保存实际引用节点和来源路径。
 for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
-    print(reference.xml_obj.value, reference.owner_ref, reference.xml_obj.arxml_filepath)
-    # owner_ref 是包含该引用的具名对象路径；修改引用后，以这个具名节点为根增量更新。
+    print(reference.xml_obj.value, reference.owner_ref)
+    # owner_ref 是包含该引用的具名对象路径；修改引用后，调用 reference.xml_obj.edited() 更新索引。
 
-# 直接修改某个 result.xml_obj 后，对该 result 调用 file.update_node(result)，再调用 file.save() 保存。
+# 直接修改某个 result.xml_obj 后，调用 result.xml_obj.edited()，再调用 file.save() 保存。
 ```
 
-`reference.set_dest(('AUTOSAR_Platform', 'BaseTypes', 'float32'))` 将路径元组转为 `/AUTOSAR_Platform/BaseTypes/float32`，写入实际引用节点的文本值。调用后仍需按上面的流程更新所在具名节点的索引并保存文件。
+`reference.set_dest(('AUTOSAR_Platform', 'BaseTypes', 'float32'))` 将路径元组转为 `/AUTOSAR_Platform/BaseTypes/float32`，写入实际引用节点的文本值。调用后仍需执行 `reference.xml_obj.edited()` 更新索引，并保存文件。
 
 扫描沿嵌套对象和列表递归查找节点，用 `SHORT-NAME` 组成对象路径，并用 `isinstance(node, autosar.Ref)` 识别引用，包含直接和间接子类。引用结果保留实际引用节点，修改其 `.value` 后可以回写文件；引用目标可以位于其他文件或尚未加载。
 
-扫描按 XML 的树形包含结构处理，使用 Python 默认的递归深度限制。目前只支持 `/Package/Type` 形式的绝对引用，不解析 `BASE / REFERENCE-BASES` 相对引用。空名称和无效引用路径会抛出带文件及节点位置的 `ValueError`，扫描失败时保留上一轮索引；缺失或为空的 UUID 不进入索引。加载时由 `scan_ref()` 全量建立索引；后续通过 `edit()` 自动增量更新，直接修改 `node.xml_obj` 后调用 `update_node(node)`。重命名仍需自行同步定义与引用。
+扫描按 XML 的树形包含结构处理，使用 Python 默认的递归深度限制。目前只支持 `/Package/Type` 形式的绝对引用，不解析 `BASE / REFERENCE-BASES` 相对引用。空名称和无效引用路径会抛出带文件及节点位置的 `ValueError`，扫描失败时保留上一轮索引；缺失或为空的 UUID 不进入索引。加载时由 `scan_ref()` 全量建立索引；后续修改数据类对象并调用其 `edited()` 增量更新。重命名仍需自行同步定义与引用。
 
 如果要新建一个名称字段，可以这样写：
 

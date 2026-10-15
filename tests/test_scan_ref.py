@@ -6,7 +6,7 @@ from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
-from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode, IOArxml
+from k3q_arxml import ArxmlFile, ArxmlNamedNode, ArxmlNode, ArxmlRefNode
 
 
 @dataclass
@@ -69,11 +69,6 @@ class ScanRefTests(unittest.TestCase):
     def scan(self, root):
         return ArxmlFile().parse_autosar(Path('scan.arxml'), root)
 
-    def edit(self, file, node):
-        document = IOArxml([])
-        document.files[file.filepath] = file
-        return document.edit(node)
-
     def test_rejects_dataclass_without_instance_dict(self):
         @dataclass(slots=True)
         class SlotNode:
@@ -94,8 +89,8 @@ class ScanRefTests(unittest.TestCase):
         self.assertEqual(root.parent, 'original')
         self.assertIsNone(root.arxml_parent)
         self.assertIs(root.child.arxml_parent, root)
-        self.assertEqual(root.arxml_filepath, Path('scan.arxml').resolve())
-        self.assertEqual(root.child.arxml_filepath, root.arxml_filepath)
+        self.assertTrue(callable(root.edited))
+        self.assertTrue(callable(root.child.edited))
 
     def test_rejects_arxml_parent_field_collision(self):
         @dataclass
@@ -105,13 +100,13 @@ class ScanRefTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, r'HasArxmlParent.*已声明 arxml_parent 字段'):
             self.scan(HasArxmlParent())
 
-    def test_rejects_arxml_filepath_field_collision(self):
+    def test_rejects_edited_field_collision(self):
         @dataclass
-        class HasArxmlFilepath:
-            arxml_filepath: Path = Path('original.arxml')
+        class HasEdited:
+            edited: str = 'original'
 
-        with self.assertRaisesRegex(TypeError, r'HasArxmlFilepath.*已声明 arxml_filepath 字段'):
-            self.scan(HasArxmlFilepath())
+        with self.assertRaisesRegex(TypeError, r'HasEdited.*已声明 edited 字段'):
+            self.scan(HasEdited())
 
     def test_fields_sequences_inheritance_and_reference_identity(self):
         first = Reference('/Types/Target')
@@ -134,7 +129,7 @@ class ScanRefTests(unittest.TestCase):
             self.assertIsInstance(row, ArxmlNode)
             self.assertNotIsInstance(row, ArxmlNamedNode)
             self.assertIs(row.xml_obj, expected)
-            self.assertEqual(row.xml_obj.arxml_filepath, Path('scan.arxml').resolve())
+            self.assertTrue(callable(row.xml_obj.edited))
         self.assertEqual(file.uuids, {'child-id': ('Package', 'Child')})
 
     def test_only_declared_child_fields_and_ref_instances_are_indexed(self):
@@ -238,8 +233,10 @@ class ScanRefTests(unittest.TestCase):
         file = self.scan(Container(value=reference))
         row = file.references[('Old',)][0]
         self.assertIs(row.xml_obj, reference)
-        self.assertEqual(row.xml_obj.arxml_filepath, file.filepath)
         self.assertEqual(row.owner_ref, ())
+
+        with self.assertRaisesRegex(ValueError, '没有具名祖先'):
+            reference.edited()
 
         row.xml_obj.value = '/New'
         file.scan_ref()
@@ -269,14 +266,14 @@ class ScanRefTests(unittest.TestCase):
         owner = NamedNode(Text('Owner'), uuid='old-owner', child=reference, content=[target])
         file = self.scan(Container(content=[NamedNode(Text('Package'), content=[owner]), NamedNode(Text('Other'))]))
 
-        with self.edit(file, file.ref(('Package', 'Owner'))) as obj:
-            self.assertIs(obj, owner)
-            obj.short_name.value = 'Renamed'
-            obj.uuid = 'new-owner'
-            target.short_name.value = 'New'
-            target.uuid = 'new-target'
-            reference.value = '/Package/Renamed/New'
-            obj.content.append(NamedNode(Text('Added')))
+        self.assertIs(file.ref(('Package', 'Owner')).xml_obj, owner)
+        owner.short_name.value = 'Renamed'
+        owner.uuid = 'new-owner'
+        target.short_name.value = 'New'
+        target.uuid = 'new-target'
+        reference.value = '/Package/Renamed/New'
+        owner.content.append(NamedNode(Text('Added')))
+        self.assertIs(owner.edited(), owner)
 
         self.assertIsNone(file.ref(('Package', 'Owner')))
         self.assertIs(file.ref(('Package', 'Renamed', 'New')).xml_obj, target)
@@ -290,19 +287,21 @@ class ScanRefTests(unittest.TestCase):
         target = NamedNode(Text('Child'), uuid='child-id', child=Reference('/Target'))
         file = self.scan(NamedNode(Text('Package'), content=[target]))
 
-        with self.edit(file, file.ref(('Package',))) as package:
-            package.content.clear()
+        package = file.ref(('Package',)).xml_obj
+        package.content.clear()
+        package.edited()
 
         self.assertIsNone(file.ref(('Package', 'Child')))
         self.assertEqual(file.references, {})
         self.assertEqual(file.uuids, {})
 
-    def test_edit_refreshes_completed_changes_when_body_raises(self):
+    def test_edit_updates_only_when_called(self):
         file = self.scan(NamedNode(Text('Package')))
-        with self.assertRaisesRegex(RuntimeError, 'body failure'):
-            with self.edit(file, file.ref(('Package',))) as obj:
-                obj.short_name.value = 'Renamed'
-                raise RuntimeError('body failure')
+        obj = file.ref(('Package',)).xml_obj
+        obj.short_name.value = 'Renamed'
+        self.assertIsNotNone(file.ref(('Package',)))
+        self.assertIsNone(file.ref(('Renamed',)))
+        self.assertIs(obj.edited(), obj)
         self.assertIsNone(file.ref(('Package',)))
         self.assertIsNotNone(file.ref(('Renamed',)))
 
@@ -310,9 +309,9 @@ class ScanRefTests(unittest.TestCase):
         reference = Reference('/Target')
         file = self.scan(NamedNode(Text('Package'), child=reference))
         previous = file.objects, file.references, file.uuids
+        reference.value = 'invalid-relative-ref'
         with self.assertRaises(ValueError):
-            with self.edit(file, file.ref(('Package',))) as obj:
-                obj.child.value = 'invalid-relative-ref'
+            reference.edited()
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
             self.assertIs(current, old)
 
@@ -326,8 +325,8 @@ class ScanRefTests(unittest.TestCase):
 
         with patch.object(file, 'scan_ref', side_effect=AssertionError('unexpected full scan')):
             with patch.object(file, '_get_fields', wraps=file._get_fields) as get_fields:
-                with self.edit(file, file.ref(('A',))) as obj:
-                    obj.child.value = '/Changed'
+                changed.child.value = '/Changed'
+                changed.child.edited()
         visited = [call.args[0] for call in get_fields.call_args_list]
         self.assertTrue(any(value is changed for value in visited))
         self.assertFalse(any(value is root or value is untouched or value is untouched.child for value in visited))
@@ -341,8 +340,8 @@ class ScanRefTests(unittest.TestCase):
         reference = Reference('/A')
         file = self.scan(Container(content=[target, NamedNode(Text('B'), child=reference)]))
         incoming = file.references[('A',)][0]
-        with self.edit(file, file.ref(('A',))) as obj:
-            obj.short_name.value = 'Renamed'
+        target.short_name.value = 'Renamed'
+        target.short_name.edited()
         self.assertIsNone(file.ref(('A',)))
         self.assertIs(file.ref(('Renamed',)).xml_obj, target)
         self.assertIs(file.references[('A',)][0], incoming)
@@ -352,11 +351,11 @@ class ScanRefTests(unittest.TestCase):
         first = NamedNode(Text('A'), uuid='duplicate')
         last = NamedNode(Text('B'), uuid='duplicate')
         file = self.scan(Container(content=[first, last]))
-        with self.edit(file, file.ref(('A',))) as obj:
-            obj.uuid = 'duplicate'
+        first.uuid = 'duplicate'
+        first.edited()
         self.assertEqual(file.uuids['duplicate'], ('B',))
-        with self.edit(file, file.ref(('B',))) as obj:
-            obj.uuid = None
+        last.uuid = None
+        last.edited()
         self.assertEqual(file.uuids['duplicate'], ('A',))
 
     def test_edit_path_conflict_and_wrapper_failure_preserve_previous_indexes(self):
@@ -364,24 +363,25 @@ class ScanRefTests(unittest.TestCase):
         previous = file.objects, file.references, file.uuids
         node = file.ref(('A',))
         child_node = file.ref(('A', 'Child'))
+        obj = node.xml_obj
+        obj.short_name.value = 'B'
         with self.assertRaisesRegex(ValueError, '路径.*冲突'):
-            with self.edit(file, node) as obj:
-                obj.short_name.value = 'B'
+            obj.edited()
         for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
             self.assertIs(current, old)
         self.assertEqual(node.ref, ('A',))
         node.xml_obj.short_name.value = 'A'
-        with self.edit(file, node) as obj:
-            obj.short_name.value = 'Renamed'
-            obj.child.short_name.value = 'RenamedChild'
-            obj.content.append(NamedNode(Text('Added')))
-            with patch('k3q_arxml.arxml_file.ArxmlNamedNode.__init__', side_effect=RuntimeError('wrapper failure')):
-                with self.assertRaisesRegex(RuntimeError, 'wrapper failure'):
-                    file.update_node(node)
-            for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
-                self.assertIs(current, old)
-            self.assertEqual(node.ref, ('A',))
-            self.assertEqual(child_node.ref, ('A', 'Child'))
+        obj.short_name.value = 'Renamed'
+        obj.child.short_name.value = 'RenamedChild'
+        obj.content.append(NamedNode(Text('Added')))
+        with patch('k3q_arxml.arxml_file.ArxmlNamedNode.__init__', side_effect=RuntimeError('wrapper failure')):
+            with self.assertRaisesRegex(RuntimeError, 'wrapper failure'):
+                obj.edited()
+        for current, old in zip((file.objects, file.references, file.uuids), previous, strict=True):
+            self.assertIs(current, old)
+        self.assertEqual(node.ref, ('A',))
+        self.assertEqual(child_node.ref, ('A', 'Child'))
+        obj.edited()
         self.assertIs(file.ref(('B',)), previous[0][('B',)])
         self.assertEqual(node.ref, ('Renamed',))
         self.assertIs(file.ref(('Renamed',)).xml_obj, node.xml_obj)
@@ -390,11 +390,13 @@ class ScanRefTests(unittest.TestCase):
     def test_nested_edit_of_renamed_root_refreshes_current_path(self):
         file = self.scan(NamedNode(Text('Package'), child=NamedNode(Text('Child'))))
         node = file.ref(('Package',))
-        with self.edit(file, node) as package:
-            package.short_name.value = 'Renamed'
-            with self.edit(file, node) as same_package:
-                same_package.uuid = 'new-id'
-            package.child.short_name.value = 'NewChild'
+        package = node.xml_obj
+        package.short_name.value = 'Renamed'
+        self.assertIs(package.edited(), package)
+        package.uuid = 'new-id'
+        package.edited()
+        package.child.short_name.value = 'NewChild'
+        package.edited()
         self.assertEqual(set(file.objects), {('Renamed',), ('Renamed', 'NewChild')})
         self.assertEqual(file.uuids, {'new-id': ('Renamed',)})
 
@@ -545,10 +547,10 @@ class ScanRefTests(unittest.TestCase):
         self.assertEqual(child_node.ref, ('Renamed', 'NewChild'))
         self.assertEqual(file.uuids, {'child-id': ('Renamed', 'NewChild')})
 
-        with self.edit(file, parent_node) as obj:
-            obj.short_name.value = 'RenamedAgain'
+        parent_node.xml_obj.short_name.value = 'RenamedAgain'
+        self.assertIs(parent_node.xml_obj.edited(), parent_node.xml_obj)
         self.assertIsNot(file.ref(('RenamedAgain',)), parent_node)
         self.assertIs(file.ref(('RenamedAgain',)).xml_obj, parent_node.xml_obj)
-        self.assertEqual(parent_node.ref, ('RenamedAgain',))
+        self.assertEqual(parent_node.ref, ('Renamed',))
         self.assertIs(file.ref(('RenamedAgain', 'NewChild')).xml_obj, child)
         self.assertEqual(file.ref(('RenamedAgain', 'NewChild')).ref, ('RenamedAgain', 'NewChild'))

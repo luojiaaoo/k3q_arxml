@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pprint
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Iterable
 from typing import Any
 
 from .arxml_file import ArxmlFile, ref2ref_str
@@ -18,20 +17,6 @@ class IOArxml:
             filepath = filepath.resolve()
             if filepath not in self.files:
                 self.append(filepath)
-
-    @contextmanager
-    def edit(self, node: ArxmlNamedNode[T]) -> Iterator[T]:
-        """以任意具名节点为根编辑 XML 对象，退出时调用文件层 update_node() 增量更新索引。
-
-        node 使用已加载文件查询返回的有效包装；修改范围限于该节点及其子树。
-        索引查询应放在上下文退出后。
-        异常退出也更新已发生的修改，不自动回滚；保存仍需调用 flush_to_file()。
-        """
-        file = self.files[node.xml_obj.arxml_filepath]
-        try:
-            yield node.xml_obj
-        finally:
-            file.update_node(node)
 
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
         """查找唯一对象；同路径有多个对象时抛出异常。"""
@@ -59,10 +44,10 @@ class IOArxml:
             ArxmlRefNode 列表，无引用时返回空列表。
             每项的 .xml_obj 是实际 XML 引用节点，通过 .xml_obj.value 读写目标路径；
             使用 .set_dest(路径元组) 修改该引用节点的目标路径；
-            .owner_ref 是包含该引用的最近具名对象的路径，.xml_obj.arxml_filepath 是引用所在文件路径。
+            .owner_ref 是包含该引用的最近具名对象的路径。
             同一来源对象中的多处引用分别返回，不合并。
 
-        修改引用时，以包含该引用的具名节点为编辑根；edit() 退出后再查询。
+        修改引用后调用 .xml_obj.edited()，更新最近具名节点的索引后再查询。
         直接修改后，对该具名节点调用所属文件的 update_node() 增量更新索引。
         """
         return [row for file in self.files.values() for row in file.references.get(ref, [])]
