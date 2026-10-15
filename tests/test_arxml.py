@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from lxml import etree
 
-from k3q_arxml import ArxmlFile, ArxmlReference, IOArxml
+from k3q_arxml import ArxmlFile, ArxmlObject, ArxmlReference, IOArxml
 
 
 class ArxmlTests(unittest.TestCase):
@@ -75,18 +75,22 @@ class ArxmlTests(unittest.TestCase):
 
         rows = file.references[('Network', 'Trigger')]
         self.assertEqual(len(rows), 2)
-        self.assertIs(rows[0][0], source)
-        self.assertIs(rows[1][0], target)
-        self.assertTrue(all(owner == ('Package', 'Gateway') for _, owner in rows))
+        self.assertIs(rows[0].node.xml_obj, source)
+        self.assertIs(rows[1].node.xml_obj, target)
+        self.assertTrue(all(row.owner_ref == ('Package', 'Gateway') for row in rows))
         self.assertEqual(file.uuids, {})
-        rows[1][0].value = '/Network/NewTrigger'
+        rows[1].node.xml_obj.value = '/Network/NewTrigger'
         file.scan_ref()
         file.save()
 
         reloaded = ArxmlFile().parse_file(self.path)
-        new_target, owner = reloaded.references[('Network', 'NewTrigger')][0]
-        self.assertIsInstance(new_target, autosar.TargetIPduRef.TargetIPduRefInner)
-        self.assertEqual(owner, ('Package', 'Gateway'))
+        row = reloaded.references[('Network', 'NewTrigger')][0]
+        new_target = row.node
+        self.assertIsInstance(new_target, ArxmlObject)
+        self.assertIsInstance(new_target.xml_obj, autosar.TargetIPduRef.TargetIPduRefInner)
+        self.assertIs(new_target.file, reloaded)
+        self.assertEqual(new_target.ref, row.owner_ref)
+        self.assertEqual(row.owner_ref, ('Package', 'Gateway'))
         self.assertEqual(len(reloaded.references[('Network', 'Trigger')]), 1)
 
     def test_shared_paths_keep_separate_objects_and_file_identity(self):
@@ -97,7 +101,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertTrue(packages)
         matches = document.find(packages[0].ref)
         self.assertEqual([obj.filename for obj in matches], [self.path, other_path])
-        self.assertTrue(all(obj.is_ar_package for obj in matches))
+        self.assertTrue(all(isinstance(obj.xml_obj, self.autosar.ArPackage) for obj in matches))
         self.assertIsNot(matches[0].xml_obj, matches[1].xml_obj)
         self.assertIs(matches[0].file, document.get_file(self.path))
         self.assertIs(matches[1].file, document.get_file(other_path))
@@ -120,16 +124,21 @@ class ArxmlTests(unittest.TestCase):
             file_results = [result for result in results if result.filename == file.filepath]
             self.assertEqual(len(file_results), len(cached))
             expected_count += len(cached)
-            for result, (xml_obj, owner_ref) in zip(file_results, cached):
+            for result, row in zip(file_results, cached):
+                self.assertIs(result, row)
                 self.assertIsInstance(result, ArxmlReference)
                 self.assertTrue(is_dataclass(result))
-                self.assertIs(result.xml_obj, xml_obj)
-                self.assertEqual(result.owner_ref, owner_ref)
+                self.assertIsInstance(row.node, ArxmlObject)
+                self.assertIs(row.node.file, file)
+                self.assertEqual(row.node.ref, row.owner_ref)
+                self.assertIs(result.xml_obj, row.node.xml_obj)
                 self.assertEqual(result.filename, file.filepath)
 
         self.assertEqual(len(results), expected_count)
         self.assertEqual({result.filename for result in results}, {self.path, other_path})
         self.assertEqual(document.references[ref], results)
+        for row, result in zip(document.references[ref], results, strict=True):
+            self.assertIs(row, result)
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
     def test_rename_updates_definition_and_references_after_rescan(self):

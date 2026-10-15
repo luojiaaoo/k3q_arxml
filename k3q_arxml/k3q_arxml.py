@@ -4,8 +4,8 @@ import pprint
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-from .arxml_file import ArxmlFile, Filename, ref_str2ref, ref2ref_str
-from .arxml_object import ArxmlObject, ArxmlReference, Ref, T
+from .arxml_file import ArxmlFile, ref_str2ref, ref2ref_str
+from .schemas import ArxmlObject, ArxmlReference, Filename, Ref, T
 
 if TYPE_CHECKING:
     from .autosar import Autosar
@@ -33,7 +33,7 @@ class IOArxml:
         result: dict[Ref, list[ArxmlReference]] = {}
         for file in self.files.values():
             for ref, rows in file.references.items():
-                result.setdefault(ref, []).extend(ArxmlReference(xml_obj=obj, owner_ref=owner, filename=file.filepath) for obj, owner in rows)
+                result.setdefault(ref, []).extend(rows)
         return result
 
     def find(self, ref: Ref) -> list[ArxmlObject[Any]]:
@@ -67,7 +67,7 @@ class IOArxml:
 
         修改引用或对象名称、结构后，应先调用 scan_ref() 更新索引再查询。
         """
-        return [ArxmlReference(xml_obj=obj, owner_ref=owner, filename=file.filepath) for file in self.files.values() for obj, owner in file.references.get(ref, [])]
+        return [row for file in self.files.values() for row in file.references.get(ref, [])]
 
     def scan_ref(self, debug_uuid: bool = False) -> None:
         for file in self.files.values():

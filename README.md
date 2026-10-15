@@ -15,6 +15,8 @@
 
 代码分三层：`ArxmlObject` 包装一个节点，`ArxmlFile` 负责单个文件的解析、扫描和保存，`IOArxml` 负责管理多个文件和汇总查询结果。
 
+项目自定义的数据模型统一定义在 `k3q_arxml/schemas.py`：`ArxmlObject`、`ArxmlReference` 使用 dataclass，`ArxmlFormat`、`ArxmlHeader` 使用 Pydantic；该文件也负责发现可用的 AUTOSAR XSD。
+
 ## 安装与生成类型
 
 项目使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理环境。在仓库根目录执行：
@@ -60,7 +62,7 @@ for result in base_types:
 # 按路径查找 BaseTypes 包；没有找到时返回 None。
 package = io_arxml.ref(('AUTOSAR_Platform', 'BaseTypes'))
 if package is not None:
-    print(package.is_ar_package)  # 判断找到的对象是不是 AR-PACKAGE。
+    print(package.short_name)  # 打印找到的包名 BaseTypes。
 
 # 查找文件中哪些位置使用了 uint8 这个数据类型。
 references = io_arxml.ref_to_ref(('AUTOSAR_Platform', 'BaseTypes', 'uint8'))
@@ -95,6 +97,12 @@ from k3q_arxml import ArxmlFile, autosar
 file = ArxmlFile().parse_file('test/ThrottlePositionControlComposition.arxml')
 for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
+
+# 查看指向 uint8 数据类型的引用；每项 ArxmlReference 保存节点包装和来源路径。
+for reference in file.references.get(('AUTOSAR_Platform', 'BaseTypes', 'uint8'), []):
+    node = reference.node
+    print(node.xml_obj.value, reference.owner_ref, reference.filename)
+    # node.file 是当前文件，node.ref 与 owner_ref 相同；修改 node.xml_obj.value 可更新引用目标。
 
 # 修改名称或引用后调用 file.scan_ref() 更新索引，调用 file.save() 保存。
 ```

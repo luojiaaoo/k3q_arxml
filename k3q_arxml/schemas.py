@@ -1,6 +1,87 @@
-"""从实际文件目录中查找可用的 AUTOSAR schema。"""
+"""ARXML 数据模型及可用 AUTOSAR XSD 的发现。"""
 
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Generic, Tuple, TypeAlias, TypeVar, cast
+
+from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .arxml_file import ArxmlFile
+    from .autosar import Ref as AutosarRef
+
+Ref: TypeAlias = Tuple[str, ...]
+Filename: TypeAlias = str | Path
+Uuid: TypeAlias = str
+T = TypeVar('T')
+
+
+class ArxmlFormat(BaseModel):
+    """保存 XML 回写时使用的格式设置。"""
+
+    indent: str = ' ' * 4
+    leading_comments: str = ''  # 包含 <!-- --> 的 XML 注释，多条注释按原顺序换行连接。
+
+
+class ArxmlHeader(BaseModel):
+    """保存 XML 根节点的命名空间和 schema 声明，并计算文件版本。"""
+
+    xml_namespace: str
+    xml_schema_location: str
+
+    @property
+    def file_schema_version(self) -> str:
+        locations = self.xml_schema_location.split()
+        schema = next((path for namespace, path in zip(locations[::2], locations[1::2]) if namespace == self.xml_namespace), None)
+        if schema is None:
+            raise ValueError('XML 根节点缺少 AUTOSAR 的 xsi:schemaLocation，无法核对 schema_version')
+        filename = re.split(r'[/\\]', schema)[-1]
+        if not filename.startswith('AUTOSAR_') or not filename.endswith('.xsd'):
+            raise ValueError(f'无法从 xsi:schemaLocation 提取 AUTOSAR schema_version：{filename}')
+        return filename.removeprefix('AUTOSAR_').removesuffix('.xsd').replace('-', '.')
+
+
+@dataclass
+class ArxmlObject(Generic[T]):
+    """一个文件中的一个 ARXML 对象。"""
+
+    xml_obj: T
+    file: ArxmlFile
+    ref: Ref
+
+    @property
+    def filename(self) -> str:
+        return self.file.filepath
+
+    @property
+    def short_name(self) -> str:
+        return cast(str, getattr(self.xml_obj, 'short_name').value)
+
+
+@dataclass
+class ArxmlReference:
+    """一处反向引用，保存引用节点包装及其来源位置。
+
+    Attributes:
+        node: 包装实际 XML 引用节点的 ArxmlObject，通过 .xml_obj.value 修改引用目标。
+        owner_ref: 包含该引用的最近具名对象的路径。
+    """
+
+    node: ArxmlObject[AutosarRef]
+    owner_ref: Ref
+
+    @property
+    def xml_obj(self) -> AutosarRef:
+        """实际 XML 引用节点，通过 .value 读写目标路径字符串。"""
+        return self.node.xml_obj
+
+    @property
+    def filename(self) -> str:
+        return self.node.filename
+
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 SCHEMA_ROOT = PACKAGE_ROOT / 'schemas'

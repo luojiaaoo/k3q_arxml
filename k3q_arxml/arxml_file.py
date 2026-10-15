@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import Field, fields, is_dataclass
-from enum import Enum
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import Any, cast
 
 from lxml import etree
-from pydantic import BaseModel
 from xsdata.formats.dataclass.context import XmlContext
 from xsdata.formats.dataclass.parsers import XmlParser
 from xsdata.formats.dataclass.parsers.config import ParserConfig
@@ -16,43 +13,15 @@ from xsdata.formats.dataclass.serializers import XmlSerializer
 from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
-from .arxml_object import ArxmlObject, Ref, T
 from .log import logger
+from .schemas import ArxmlFormat, ArxmlHeader, ArxmlObject, ArxmlReference, Filename, Ref, T, Uuid
+
 try:
     from .autosar import SCHEMA_VERSION, Autosar
 except ModuleNotFoundError as exc:
     if exc.name != f'{__package__}.autosar':
         raise
     raise RuntimeError('尚未生成 AUTOSAR 绑定，请先运行 uv run python -m k3q_arxml generate <版本>；使用 versions 命令查看可用版本。') from exc
-
-
-Filename: TypeAlias = str | Path
-Uuid: TypeAlias = str
-
-
-class ArxmlFormat(BaseModel):
-    """保存 XML 回写时使用的格式设置。"""
-
-    indent: str = ' ' * 4
-    leading_comments: str = ''  # 包含 <!-- --> 的 XML 注释，多条注释按原顺序换行连接。
-
-
-class ArxmlHeader(BaseModel):
-    """保存 XML 根节点的命名空间和 schema 声明，并计算文件版本。"""
-
-    xml_namespace: str
-    xml_schema_location: str
-
-    @property
-    def file_schema_version(self) -> str:
-        locations = self.xml_schema_location.split()
-        schema = next((path for namespace, path in zip(locations[::2], locations[1::2]) if namespace == self.xml_namespace), None)
-        if schema is None:
-            raise ValueError('XML 根节点缺少 AUTOSAR 的 xsi:schemaLocation，无法核对 schema_version')
-        filename = re.split(r'[/\\]', schema)[-1]
-        if not filename.startswith('AUTOSAR_') or not filename.endswith('.xsd'):
-            raise ValueError(f'无法从 xsi:schemaLocation 提取 AUTOSAR schema_version：{filename}')
-        return filename.removeprefix('AUTOSAR_').removesuffix('.xsd').replace('-', '.')
 
 
 def get_xml_metadata(schema_version: str) -> dict[str, str]:
@@ -80,7 +49,7 @@ class ArxmlFile:
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
         self.objects: dict[Ref, ArxmlObject[Any]] = {}  # 按 AUTOSAR 路径索引的对象。
-        self.references: dict[Ref, list[tuple[Any, Ref]]] = {}  # 按目标路径索引的反向引用及其来源路径。
+        self.references: dict[Ref, list[ArxmlReference]] = {}  # 按目标路径索引的引用记录，包含节点包装和来源路径。
         self.uuids: dict[Uuid, Ref] = {}  # 按 UUID 索引的对象路径。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
@@ -225,13 +194,13 @@ class ArxmlFile:
             self._field_cache[node_type] = fields(node_type)
         return self._field_cache[node_type]
 
-    def __scan_arobj_ref(self, obj: Autosar) -> tuple[dict[Ref, Any], dict[Ref, list[tuple[Any, Ref]]], dict[Uuid, Ref]]:
+    def __scan_arobj_ref(self, obj: Autosar) -> tuple[dict[Ref, Any], dict[Ref, list[ArxmlReference]], dict[Uuid, Ref]]:
         """遍历 dataclass 声明字段并递归扫描，返回对象、反向引用和 UUID 三组索引。
 
         路径只追加 SHORT-NAME，无名容器沿用父路径。
         例如 /Pkg/Owner 中的引用 .value 为 /Types/Speed，则记录：
-            references[('Types', 'Speed')] = [(引用节点, ('Pkg', 'Owner'))]
-        引用节点保留原对象，之后可修改 .value 并回写；这里只登记目标路径，
+            references[('Types', 'Speed')] = [ArxmlReference(ArxmlObject(引用节点, self, ('Pkg', 'Owner')), ('Pkg', 'Owner'))]
+        记录的 .node 包装原引用节点，可通过 .node.xml_obj.value 或 .xml_obj.value 修改引用并回写；这里只登记目标路径，
         不查找目标对象，也不沿引用跳到其他对象。
 
         按 XML 树的包含关系递归，不做循环检测。使用 Python 默认递归深度限制。
@@ -239,7 +208,7 @@ class ArxmlFile:
         from .autosar import Ref as AutosarRef
 
         objects: dict[Ref, Any] = {}
-        references: dict[Ref, list[tuple[Any, Ref]]] = {}
+        references: dict[Ref, list[ArxmlReference]] = {}
         uuids: dict[Uuid, Ref] = {}
 
         def _object_ref(node: Any, ref: Ref) -> Ref:
@@ -261,7 +230,7 @@ class ArxmlFile:
                 uuids[uuid] = named_ref
             return named_ref
 
-        def _add_reference(node: Any, ref: Ref) -> None:
+        def _add_reference(node: AutosarRef, ref: Ref) -> None:
             """将一处 XML 引用加入按目标路径组织的反向引用索引。"""
 
             value = node.value
@@ -274,7 +243,7 @@ class ArxmlFile:
                 raise ValueError(f'{self.filepath}: {ref2ref_str(ref)} ({type(node).__qualname__}.value): 引用路径不能包含空路径段')
             # target_ref 是引用目标，ref 是引用所属对象；同一目标的每处引用都保留。
             # setdefault() 为首次遇到的目标建立列表，append() 将本处引用追加到列表末尾。
-            references.setdefault(target_ref, []).append((node, ref))
+            references.setdefault(target_ref, []).append(ArxmlReference(node=ArxmlObject(node, self, ref), owner_ref=ref))
 
         def _scan(node: Any, ref: Ref) -> None:
             if isinstance(node, (list, tuple)):

@@ -17,13 +17,12 @@
 
 | 路径 | 职责与维护方式 |
 | --- | --- |
-| `k3q_arxml/arxml_object.py` | 泛型 `ArxmlObject[T]`，包装一个文件里的一个节点 |
 | `k3q_arxml/arxml_file.py` | `ArxmlFile`，负责单文件解析、原有引用扫描和回写 |
 | `k3q_arxml/k3q_arxml.py` | `IOArxml`，负责多文件管理和查询汇总 |
 | `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlObject` 和 logger |
 | `k3q_arxml/log.py` | Loguru 的输出、格式和日志级别配置，默认 INFO |
 | `k3q_arxml/__main__.py`、`cli.py` | `python -m k3q_arxml` 的 Click 命令行入口 |
-| `k3q_arxml/schemas.py` | 扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
+| `k3q_arxml/schemas.py` | 集中定义 dataclass、Pydantic 模型和类型别名；扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
 | `k3q_arxml/schemas/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |
 | `k3q_arxml/autosar.py` | 按需生成的当前版本类型模块，Git 忽略，不手动编辑 |
 | `chg_adt_name.py` | 按 SenderReceiverInterface 名称列表为关联 ADT 添加或恢复后缀 |
