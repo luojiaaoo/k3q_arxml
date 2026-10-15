@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 
 def main() -> None:
@@ -9,7 +10,7 @@ def main() -> None:
     ## 需要修改的SOA Interface Name
     parser.add_argument('-a', '--soa_interface_name', required=True, nargs='+', help='SOA InterfaceName list')
     ## arxml文件
-    parser.add_argument('arxml_files', nargs='+', help='arxml file list')
+    parser.add_argument('arxml_files', nargs='+', type=Path, help='arxml file list')
     args = parser.parse_args()
 
     from k3q_arxml import IOArxml, autosar, logger

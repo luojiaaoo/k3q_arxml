@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import pprint
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .arxml_file import ArxmlFile, ref_str2ref, ref2ref_str
 from .schemas import ArxmlObject, ArxmlReference, Filename, Ref, T
-
-if TYPE_CHECKING:
-    from .autosar import Autosar
 
 
 class IOArxml:
     """管理多个 ArxmlFile，汇总文件内的查询结果。"""
 
     def __init__(self, filepaths: Iterable[Filename]):
-        self.files = {str(filepath): ArxmlFile().parse_file(filepath) for filepath in filepaths}
+        self.files: dict[Filename, ArxmlFile] = {}
+        for filepath in filepaths:
+            filepath = filepath.resolve()
+            if filepath not in self.files:
+                self.append(filepath)
 
     def get_file(self, filename: Filename) -> ArxmlFile:
-        return self.files[str(filename)]
+        return self.files[filename.resolve()]
 
     @property
     def objects(self) -> dict[Ref, list[ArxmlObject[Any]]]:
@@ -75,17 +76,19 @@ class IOArxml:
         if debug_uuid:
             pprint.pp({filename: file.uuids for filename, file in self.files.items()})
 
-    def create_arxml(
-        self,
-        filepath: Filename,
-        arxml_obj: Autosar,
-        xml_namespace: str | None = None,
-        xml_schema_location: str | None = None,
-        indent: str = ' ' * 4,
-        leading_comments: str = '',
-    ) -> ArxmlFile:
-        file = ArxmlFile().parse_autosar(filepath, arxml_obj, xml_namespace, xml_schema_location, indent, leading_comments=leading_comments)
-        self.files[str(filepath)] = file
+    def append(self, filepath: Filename) -> ArxmlFile:
+        """加载已有的 ARXML 文件并加入管理，拒绝重复路径；不写回文件。"""
+        filepath = filepath.resolve()
+        if filepath in self.files:
+            raise ValueError(f'{filepath} 已加载，不能重复添加')
+        if not filepath.exists():
+            raise FileNotFoundError(f'{filepath} 不存在')
+        if filepath.is_dir():
+            raise IsADirectoryError(f'{filepath} 是目录，不能作为 ARXML 文件加载')
+        if not filepath.is_file():
+            raise ValueError(f'{filepath} 不是普通文件')
+        file = ArxmlFile().parse_file(filepath)
+        self.files[filepath] = file
         return file
 
     def flush_to_file(self) -> None:

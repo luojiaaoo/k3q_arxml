@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .autosar import Ref as AutosarRef
 
 Ref: TypeAlias = Tuple[str, ...]
-Filename: TypeAlias = str | Path
+Filename: TypeAlias = Path
 Uuid: TypeAlias = str
 T = TypeVar('T')
 
@@ -53,7 +53,7 @@ class ArxmlObject(Generic[T]):
     ref: Ref
 
     @property
-    def filename(self) -> str:
+    def filename(self) -> Filename:
         return self.file.filepath
 
     @property
@@ -79,7 +79,7 @@ class ArxmlReference:
         return self.node.xml_obj
 
     @property
-    def filename(self) -> str:
+    def filename(self) -> Filename:
         return self.node.filename
 
 

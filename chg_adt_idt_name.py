@@ -7,7 +7,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='change ApplicationDataTypeRef name')
 
     # arxml文件
-    parser.add_argument('arxml_files', nargs='+', help='arxml file list')
+    parser.add_argument('arxml_files', nargs='+', type=Path, help='arxml file list')
 
     args = parser.parse_args()
 

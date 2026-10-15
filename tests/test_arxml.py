@@ -1,4 +1,5 @@
 import unittest
+from contextlib import chdir
 from dataclasses import is_dataclass
 from pathlib import Path
 from shutil import copy2
@@ -25,7 +26,7 @@ class ArxmlTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.path = str(Path(self.temporary.name) / 'sample.arxml')
+        self.path = (Path(self.temporary.name) / 'sample.arxml').resolve()
         fixture = Path(__file__).resolve().parents[1] / 'test' / 'ThrottlePositionControlComposition.arxml'
         copy2(fixture, self.path)
         logger_patch = patch('k3q_arxml.arxml_file.logger')
@@ -62,6 +63,54 @@ class ArxmlTests(unittest.TestCase):
         self.assertTrue(file.format.leading_comments)
         self.assertIn('Auto generated XML Component Description', file.format.leading_comments)
 
+    def test_equivalent_file_paths_load_once_and_preserve_saved_edits(self):
+        with chdir(self.temporary.name):
+            Path('nested').mkdir()
+            aliases = [self.path, Path('sample.arxml'), Path('./sample.arxml'), Path('nested/../sample.arxml'), Path(self.path.as_posix())]
+            with patch.object(ArxmlFile, 'parse_file', autospec=True, side_effect=ArxmlFile.parse_file) as parse:
+                document = IOArxml(iter(aliases))
+            self.assertEqual(parse.call_count, 1)
+            self.assertEqual(list(document.files), [self.path])
+            file = document.get_file(self.path)
+            for alias in aliases:
+                self.assertIs(document.get_file(alias), file)
+            ref = next(iter(file.objects))
+            self.assertIs(document.ref(ref), file.ref(ref))
+            self.assertIs(document.ref(ref, filename=Path('sample.arxml')), file.ref(ref))
+            self.assertIsInstance(file.filepath, Path)
+            self.assertEqual(file.ref(ref).filename, self.path)
+            file.format.leading_comments = '<!-- saved once -->'
+
+        # 离开原工作目录后仍写入原文件，且没有另一份旧对象覆盖本次修改。
+        document.flush_to_file()
+        self.assertEqual(ArxmlFile().parse_file(self.path).format.leading_comments, '<!-- saved once -->')
+
+    def test_standalone_file_keeps_resolved_path(self):
+        with chdir(self.temporary.name):
+            file = ArxmlFile().parse_file(Path('sample.arxml'))
+        self.assertEqual(file.filepath, self.path)
+        file.format.leading_comments = '<!-- absolute path -->'
+        file.save()
+        self.assertEqual(ArxmlFile().parse_file(self.path).format.leading_comments, '<!-- absolute path -->')
+
+    def test_append_resolves_paths_and_rejects_loaded_aliases(self):
+        document = IOArxml([self.path])
+        original = document.get_file(self.path)
+        original.format.leading_comments = '<!-- unsaved edit -->'
+        other_path = self.path.with_name('other.arxml')
+        copy2(self.path, other_path)
+        with chdir(self.temporary.name):
+            with self.assertRaisesRegex(ValueError, '已加载'):
+                document.append(Path('sample.arxml'))
+            added = document.append(Path('other.arxml'))
+            self.assertIs(document.get_file(Path('other.arxml')), added)
+
+        self.assertIs(document.get_file(self.path), original)
+        self.assertEqual(original.format.leading_comments, '<!-- unsaved edit -->')
+        self.assertEqual(added.filepath, other_path)
+        self.assertIs(document.files[added.filepath], added)
+        self.assertTrue(added.objects)
+
     def test_ref_inner_subclass_is_indexed_and_can_be_edited_and_saved(self):
         autosar = self.autosar
         source = autosar.IPduMapping.SourceIPduRef(value='/Network/Trigger', dest=autosar.PduTriggeringSubtypesEnum.PDU_TRIGGERING)
@@ -94,7 +143,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(len(reloaded.references[('Network', 'Trigger')]), 1)
 
     def test_shared_paths_keep_separate_objects_and_file_identity(self):
-        other_path = str(Path(self.temporary.name) / 'other.arxml')
+        other_path = self.path.with_name('other.arxml')
         copy2(self.path, other_path)
         document = IOArxml([self.path, other_path])
         packages = document.ar(self.autosar.ArPackage)
@@ -112,7 +161,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(document.find(('Missing',)), [])
 
     def test_reference_results_preserve_nodes_owners_and_file_identity(self):
-        other_path = str(Path(self.temporary.name) / 'other.arxml')
+        other_path = self.path.with_name('other.arxml')
         copy2(self.path, other_path)
         document = IOArxml([self.path, other_path])
         ref = next(iter(document.get_file(self.path).references))
@@ -142,7 +191,7 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(document.ref_to_ref(('Missing',)), [])
 
     def test_rename_updates_definition_and_references_after_rescan(self):
-        other_path = str(Path(self.temporary.name) / 'references.arxml')
+        other_path = self.path.with_name('references.arxml')
         tree = etree.parse(self.path)
         base_types = tree.xpath('//ar:AR-PACKAGE[ar:SHORT-NAME="BaseTypes"]', namespaces={'ar': 'http://autosar.org/schema/r4.0'})[0]
         base_types.getparent().remove(base_types)
@@ -199,21 +248,41 @@ class ArxmlTests(unittest.TestCase):
         self.assertEqual(reloaded.format.leading_comments, comments)
         self.assertEqual(reloaded.header.file_schema_version, self.autosar.SCHEMA_VERSION)
 
-    def test_create_arxml_registers_and_saves_a_new_file(self):
-        source = ArxmlFile().parse_file(self.path)
+    def test_append_loads_existing_file_without_writing(self):
         document = IOArxml([])
-        path = Path(self.temporary.name) / 'created.arxml'
-        comments = '<!-- 通过 IOArxml 创建 -->'
+        original_content = self.path.read_bytes()
 
-        file = document.create_arxml(path, source.root, leading_comments=comments)
-        self.assertIs(document.get_file(path), file)
-        self.assertFalse(path.exists())
+        file = document.append(self.path)
+
+        self.assertIs(document.get_file(self.path), file)
+        self.assertTrue(file.objects)
+        self.assertTrue(file.references)
+        self.assertEqual(self.path.read_bytes(), original_content)
+        file.format.leading_comments = '<!-- 通过 IOArxml 保存 -->'
         document.flush_to_file()
 
-        reloaded = ArxmlFile().parse_file(path)
-        self.assertEqual(reloaded.format.leading_comments, comments)
-        self.assertEqual(reloaded.root, source.root)
-        self.assertEqual(set(reloaded.objects), set(source.objects))
+        reloaded = ArxmlFile().parse_file(self.path)
+        self.assertEqual(reloaded.format.leading_comments, file.format.leading_comments)
+        self.assertEqual(reloaded.root, file.root)
+        self.assertEqual(set(reloaded.objects), set(file.objects))
+
+    def test_append_rejects_missing_paths_directories_and_invalid_xml(self):
+        document = IOArxml([])
+        original_content = self.path.read_bytes()
+        invalid_path = self.path.with_name('invalid.arxml')
+        invalid_path.write_text('invalid XML', encoding='utf-8')
+        cases = (
+            (self.path.with_name('missing.arxml'), FileNotFoundError),
+            (self.path.parent, IsADirectoryError),
+            (self.path.parent / 'missing' / 'new.arxml', FileNotFoundError),
+            (invalid_path, etree.XMLSyntaxError),
+        )
+        for path, error in cases:
+            with self.subTest(path=path), self.assertRaises(error):
+                document.append(path)
+            self.assertEqual(document.files, {})
+        self.assertEqual(self.path.read_bytes(), original_content)
+        self.assertFalse((self.path.parent / 'missing').exists())
 
     def test_round_trip_preserves_leading_comment_order(self):
         path = Path(self.path)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import Field, fields, is_dataclass
+from pathlib import Path
 from typing import Any, cast
 
 from lxml import etree
@@ -44,7 +45,7 @@ class ArxmlFile:
     """负责单个文件的解析、索引和回写。"""
 
     def __init__(self):
-        self.filepath = ''  # 当前 ARXML 文件的路径。
+        self.filepath: Filename | None = None  # 解析或创建文件后保存为绝对路径。
         self.parse_schema_version = SCHEMA_VERSION  # 当前绑定用于解析的 AUTOSAR 版本。
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
@@ -89,7 +90,7 @@ class ArxmlFile:
         return format_info, header
 
     def parse_file(self, filepath: Filename) -> ArxmlFile:
-        self.filepath = str(filepath)
+        self.filepath = filepath.resolve()
         logger.info('>> parsing {}', self.filepath)
         self.format, self.header = self.read_file_metadata()
         if self.header.file_schema_version != self.parse_schema_version:
@@ -102,7 +103,7 @@ class ArxmlFile:
 
         parser = XmlParser(context=XmlContext(), config=ParserConfig(), handler=LxmlEventHandler)
         ns_map = {}
-        self.root = parser.parse(self.filepath, Autosar, ns_map=ns_map)
+        self.root = parser.parse(str(self.filepath), Autosar, ns_map=ns_map)
         self.scan_ref()
         return self
 
@@ -119,7 +120,7 @@ class ArxmlFile:
             metadata = get_xml_metadata(self.parse_schema_version)
             xml_namespace = xml_namespace or metadata['xml_namespace']
             xml_schema_location = xml_schema_location or metadata['xml_schema_location']
-        self.filepath = str(filepath)
+        self.filepath = filepath.resolve()
         self.root = autosar_obj
         self.header = ArxmlHeader(xml_namespace=xml_namespace, xml_schema_location=xml_schema_location)
         self.format = ArxmlFormat(indent=indent, leading_comments=leading_comments)

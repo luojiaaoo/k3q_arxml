@@ -46,10 +46,12 @@ Python 开发版本固定为 3.11，运行依赖使用 xsdata 26.2、lxml 5.4.0 
 先生成与仓库样例匹配的 4.2.2 绑定，再运行以下代码：
 
 ```python
+from pathlib import Path
+
 from k3q_arxml import IOArxml, autosar
 
 io_arxml = IOArxml(
-    filepaths=['test/ThrottlePositionControlComposition.arxml'],
+    filepaths=[Path('test/ThrottlePositionControlComposition.arxml')],
 )
 
 # 找出文件中所有的基础数据类型（XML 中的 SW-BASE-TYPE 节点）。
@@ -74,7 +76,7 @@ for reference in references:
 # io_arxml.scan_ref()
 
 # 把读取到的全部内容输出到 model.txt，方便查看。
-io_arxml.print(print_filepath='model.txt')
+io_arxml.print(print_filepath=Path('model.txt'))
 
 # 把修改保存回原来的 ARXML 文件。确认已备份后再取消下面的注释。
 # io_arxml.flush_to_file()
@@ -87,14 +89,20 @@ io_arxml.print(print_filepath='model.txt')
 3. `result.xml_obj` 取出实际的 ARXML 对象，`result.ref` 是路径，`result.file` 是所属文件。
 4. `base_type.short_name.value` 读取这个对象的 `<SHORT-NAME>` 文本，也就是它的名称。
 
-加载多个文件时，同一路径的节点分别保留。`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename='文件路径')` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
+文件路径参数统一使用 `pathlib.Path`。加载、添加和查询文件时使用 `resolve()` 转为绝对路径；同一文件的相对路径、绝对路径以及 Windows 下不同斜杠写法只加载一次。`file.filepath`、对象的 `.filename` 和 `io_arxml.files` 的键均为绝对路径 `Path`。
+
+使用 `io_arxml.append(Path('other.arxml'))` 加载已有 ARXML 文件并加入管理，返回对应的 `ArxmlFile`。路径必须存在且为普通文件，已加载的路径会被拒绝；解析失败不会加入管理。`append()` 不写回磁盘，修改后调用 `file.save()` 或 `io_arxml.flush_to_file()` 保存。
+
+加载多个文件时，同一 AUTOSAR 路径的节点分别保留。`io_arxml.find(path)` 返回全部匹配对象；`io_arxml.ref(path)` 返回唯一对象或 None，存在多个匹配时抛出异常，可以用 `io_arxml.ref(path, filename=Path('文件路径'))` 指定文件。对象上不再提供 `.default`、`.filter()` 或多对象遍历。
 
 只处理一个文件时，可以直接使用文件层：
 
 ```python
+from pathlib import Path
+
 from k3q_arxml import ArxmlFile, autosar
 
-file = ArxmlFile().parse_file('test/ThrottlePositionControlComposition.arxml')
+file = ArxmlFile().parse_file(Path('test/ThrottlePositionControlComposition.arxml'))
 for result in file.ar(autosar.SwBaseType):
     print(result.ref, result.xml_obj.short_name.value)
 

@@ -64,6 +64,7 @@ uv run python -m k3q_arxml generate 4.2.2
 ### 对象、路径与引用
 
 - `IOArxml(filepaths=[...])` 为每个文件创建 `ArxmlFile`；文件层负责解析并调用 `scan_ref()` 建立索引。单文件也可以直接使用 `ArxmlFile`。
+- 文件路径参数 `Filename` 统一为 `Path`；加载、添加和查询时使用 `resolve()` 规范化，文件层保存绝对路径，IO 层按绝对路径去重。`append(filepath)` 加载已有 ARXML 文件，拒绝已加载、不存在或非普通文件的路径；解析成功后才加入管理，添加时不写回文件。
 - 路径使用元组，如 `('Package', 'Type')`；XML 引用使用 `/Package/Type`。使用 `ref_str2ref()` / `ref2ref_str()` 转换。
 - `ref()` 返回唯一包装对象或 None；`ar()` 按具体类型与路径前缀返回对象列表。
 - 每个 `ArxmlObject` 只保存一个 `.xml_obj`，通过 `.file` 关联所属文件。跨文件同路径查询用 `IOArxml.find()` 获取列表，或用 `ref(..., filename=...)` 指定文件；不指定文件且匹配多个时抛出异常。

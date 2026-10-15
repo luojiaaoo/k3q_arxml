@@ -1,6 +1,7 @@
 import sys
 import unittest
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
@@ -65,7 +66,7 @@ class ScanRefTests(unittest.TestCase):
         self.addCleanup(binding_patch.stop)
 
     def scan(self, root):
-        return ArxmlFile().parse_autosar('scan.arxml', root)
+        return ArxmlFile().parse_autosar(Path('scan.arxml'), root)
 
     def test_fields_sequences_inheritance_and_reference_identity(self):
         first = Reference('/Types/Target')
@@ -90,7 +91,7 @@ class ScanRefTests(unittest.TestCase):
             self.assertIs(row.xml_obj, expected)
             self.assertIs(node.file, file)
             self.assertEqual(node.ref, row.owner_ref)
-            self.assertEqual(node.filename, 'scan.arxml')
+            self.assertEqual(node.filename, Path('scan.arxml').resolve())
             self.assertEqual(row.filename, node.filename)
         self.assertEqual(file.uuids, {'child-id': ('Package', 'Child')})
 
