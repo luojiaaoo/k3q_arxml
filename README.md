@@ -281,15 +281,19 @@ uv run python chg_adt_idt_name.py --help
 
 ## 通过 MCP 供大模型使用
 
-MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 从 PyPI 准备 MCP 依赖：
+MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 准备 MCP 依赖。下面使用清华大学 PyPI 镜像加速包下载：
 
 ```console
-uv run --python 3.11 --with "k3q-arxml[mcp]" -m k3q_arxml mcp
+uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]" -m k3q_arxml mcp
 ```
+
+`--default-index` 指定默认包索引，对 `--with` 安装的包及其依赖生效；删除该参数及其 URL 即使用默认 PyPI 源。参数说明见 [uv 官方文档](https://docs.astral.sh/uv/reference/cli/#uv-run--default-index)，镜像地址见 [清华镜像使用帮助](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)。
+
+首次启动需要下载依赖，后续启动会复用 uv 缓存中的包和环境，依赖变化或缓存清理后可能需要重新下载。该镜像只用于 Python 包；若本机没有 Python 3.11，uv 自动下载 Python 解释器时不使用此镜像，也可以提前安装 Python 3.11。
 
 该命令等待 MCP 客户端通过 stdin/stdout 通信，启动后不显示交互菜单。日志与错误写入 stderr。服务只访问启动目录及其子目录中的普通文件，文件路径会先解析为绝对路径。服务启动后使用固定版本。
 
-客户端配置示例。`--python 3.11` 选择项目验证使用的 Python，`--with` 指定从 PyPI 安装的包；无需配置源码路径或 `PYTHONPATH`：
+客户端配置示例。`--python 3.11` 选择项目验证使用的 Python，`--default-index` 使用国内镜像，`--with` 指定要安装的包；无需配置源码路径或 `PYTHONPATH`：
 
 ```json
 {
@@ -298,6 +302,7 @@ uv run --python 3.11 --with "k3q-arxml[mcp]" -m k3q_arxml mcp
       "command": "uv",
       "args": [
         "run", "--python", "3.11",
+        "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
         "--with", "k3q-arxml[mcp]",
         "-m", "k3q_arxml", "mcp"
       ]
