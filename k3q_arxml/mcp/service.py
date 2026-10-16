@@ -102,7 +102,13 @@ class ArxmlMcpService:
         self.schema = etree.XMLSchema(etree.parse(str(schema_path), etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
 
     def get_skill_path(self) -> str:
-        """如果当前没有 arxml-mcp Skill，可通过此工具获取内置 Skill 目录，再自行读取其中的 SKILL.md 和所需 references；无需 project_id。"""
+        """获取本 MCP 使用手册（arxml-mcp Skill）的目录；无需参数或工程会话。
+
+        操作 ARXML 前应优先阅读使用手册。如果尚未加载 arxml-mcp Skill，先调用本工具，
+        再读取返回目录中的 SKILL.md，并按任务需要读取 references。
+        建议将整个 arxml-mcp 目录复制安装到智能体的 skills 目录，便于后续自动发现和加载；无需重新创建技能。
+        本工具仅返回目录路径，不读取或解析手册内容。
+        """
         root = PACKAGE_ROOT / 'skills' / 'arxml-mcp'
         if not root.is_dir():
             root = PACKAGE_ROOT.parent / 'skills' / 'arxml-mcp'

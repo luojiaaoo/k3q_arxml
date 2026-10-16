@@ -14,7 +14,7 @@
 
 面向编程智能体的操作技能位于 [`skills/arxml-mcp/SKILL.md`](skills/arxml-mcp/SKILL.md)，附带按需读取的操作指南和 AUTOSAR 基础知识。可以显式要求智能体读取该入口，或将整个 `skills/arxml-mcp/` 目录复制到所用智能体支持的技能目录；MCP 连接仍需单独配置。后续领域知识可继续添加到该技能的 `references/`，并在入口中注明适用任务。
 
-发行包同时附带 `[site-packages]\k3q_arxml\skills\arxml-mcp`。当前没有 `arxml-mcp` Skill 时，可以调用不带参数的 `get_skill_path()` 获取实际目录，由智能体自行读取其中的 `SKILL.md` 和所需 `references`；无需先打开工程。也可将整个目录复制到客户端的 skills 目录后刷新加载，作为可选的技能入口。工具只返回目录路径，不读取或解析文档内容。
+发行包同时附带 `[site-packages]\k3q_arxml\skills\arxml-mcp`，这是本 MCP 的使用手册，操作 ARXML 前应优先读取。如果尚未加载 `arxml-mcp` Skill，先调用不带参数的 `get_skill_path()` 获取实际目录，再读取其中的 `SKILL.md` 和任务所需 `references`；无需先打开工程。建议将整个目录复制安装到客户端的 skills 目录后刷新加载，便于后续自动发现和加载，无需重新创建技能。工具只返回目录路径，不读取或解析文档内容。
 
 使用 `uv run --with "k3q-arxml[mcp]"` 启动时，该包及其依赖由临时环境提供；临时环境由 uv 缓存管理并可复用。当前工作目录用于确定 ARXML 文件访问范围，查找 Skill 时以 `get_skill_path()` 返回的实际安装路径为准。
 
@@ -22,7 +22,7 @@
 
 | 工具 | 用途 |
 | --- | --- |
-| `get_skill_path` | 当前没有 arxml-mcp Skill 时，获取内置 Skill 目录并自行读取文档，无需工程会话 |
+| `get_skill_path` | 获取本 MCP 使用手册目录；操作前优先读取，建议安装为 arxml-mcp Skill，无需工程会话 |
 | `open_project` | 加载明确指定的文件集合，获取 `project_id`、`file_id` 和 `revision` |
 | `project_info` | 查看工程状态及未保存文件 |
 | `find_nodes` | 按 XML 标签、名称子串、路径前缀和文件查询具名节点 |

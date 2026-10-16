@@ -328,7 +328,7 @@ uv 自动发现启动目录或上级目录中的项目，`--with` 指定的包�
 
 从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。
 
-从 `2.1.1` 起，当前没有 `arxml-mcp` Skill 时，可直接调用 MCP 工具 `get_skill_path()` 获取内置目录，由智能体自行读取 `SKILL.md` 和所需参考文件；工具不解析内容，也不要求先打开工程。复制安装 Skill 是可选方式。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
+该 Skill 是本 MCP 的使用手册，操作 ARXML 前应优先读取。从 `2.1.1` 起，如果尚未加载 `arxml-mcp` Skill，先调用 MCP 工具 `get_skill_path()` 获取内置目录，再读取 `SKILL.md` 和任务所需参考文件；工具不解析内容，也不要求先打开工程。建议将整个目录安装到智能体的 skills 目录，便于后续自动发现和加载，无需重新创建技能。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
 
 ```console
 python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"
