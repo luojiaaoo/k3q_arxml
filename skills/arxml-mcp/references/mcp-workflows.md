@@ -100,7 +100,7 @@ XPath 相对于指定的具名节点，`.` 表示该节点。AUTOSAR 元素使�
 | `XPATH_MATCH_COUNT` / `INVALID_XPATH` | 阅读 XML，收窄选择器；不盲目调整位置数字 |
 | `RENAME_REQUIRED` | 改用 `rename_node`，结构增删按独立操作表达 |
 | `BINDING_ERROR` / `LOSSY_ROUND_TRIP` / `VALIDATION_FAILED` | 核对具体字段、类型、枚举、元素顺序及引用，不削弱校验 |
-| `SCHEMA_MISMATCH` | 报告文件 schema 与当前服务版本，停止该文件的操作，由用户检查环境 |
+| `SCHEMA_MISMATCH` | `diagnostics` 中 severity 为 warning 时，报告两个版本并继续操作；若工具返回 `isError=true`，则核对缺失的根节点、命名空间或 schema 声明 |
 | `FILE_CONFLICT` | 停止写回；保留需要的会话 XML 和差异，重新加载并合并外部改动 |
 | `SAVE_FAILED` | 核对返回的恢复清单状态；确认已恢复后，修复写入条件，再预览和保存 |
 | `RECOVERY_REQUIRED` | 停止写操作，核对备份及清单，不仅修改 status 就重新尝试 |

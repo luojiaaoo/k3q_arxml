@@ -142,6 +142,17 @@ class ArxmlMcpService:
         objects: dict[tuple[str, ...], tuple[str, str]] = {}
         trees = {file_id: read_xml(file.render()) for file_id, file in files.items()}
         for file_id, root in trees.items():
+            file = files[file_id]
+            if file.header.file_schema_version != file.parse_schema_version:
+                diagnostics.append(
+                    McpDiagnostic(
+                        code='SCHEMA_MISMATCH',
+                        severity='warning',
+                        message=f'文件声明版本 {file.header.file_schema_version} 与当前绑定 {file.parse_schema_version} 不一致；已使用当前绑定继续解析，兼容性以解析和 XSD 校验结果为准。',
+                        file_id=file_id,
+                        ref='/',
+                    )
+                )
             if not self.schema.validate(root):
                 diagnostics.extend(McpDiagnostic(code='XSD_ERROR', severity='error', message=error.message, file_id=file_id, line=error.line) for error in self.schema.error_log)
             for ref, element in walk_named(root):
@@ -199,7 +210,7 @@ class ArxmlMcpService:
     def open_project(
         self, filepaths: Annotated[list[str], Field(min_length=1, max_length=1000, description='需要一起查询及同步引用的文件；相对路径以 workspace 为基准。')]
     ) -> McpProjectInfo:
-        """加载明确指定的 ARXML 文件集合，不写盘；同一会话只允许当前绑定版本。"""
+        """加载明确指定的 ARXML 文件集合，不写盘；版本不匹配仅告警，继续尝试使用当前绑定解析。"""
         check_recovery(self.workspace)
         paths = {}
         baseline = {}
@@ -218,8 +229,6 @@ class ArxmlMcpService:
             if root.tag != f'{{{NAMESPACE}}}AUTOSAR' or not schema_location:
                 fail('SCHEMA_MISMATCH', '缺少 AUTOSAR 根节点、命名空间或 schemaLocation。', '检查文件头部的 AUTOSAR schema 声明。')
             header = ArxmlHeader(xml_namespace=namespace, xml_schema_location=schema_location)
-            if header.file_schema_version != autosar.SCHEMA_VERSION:
-                fail('SCHEMA_MISMATCH', f'文件版本 {header.file_schema_version} 与绑定 {autosar.SCHEMA_VERSION} 不一致。', '请用户检查文件与当前服务环境；本次文件未加载。')
             for ref, _ in walk_named(root):
                 if ref in seen_refs:
                     fail('DUPLICATE_PATH', f'对象路径重复：{ref2str(ref)}', '拆分文件集合或修正重复的节点路径。')
@@ -237,7 +246,9 @@ class ArxmlMcpService:
                     comments.append(etree.tostring(previous, encoding='unicode', with_tail=False))
                 previous = previous.getprevious()
             indent = re.search(rb'\n([ \t]+)<', content)
-            file = ArxmlFile().parse_autosar(path, obj, namespace, schema_location, indent.group(1).decode() if indent else '    ', '\n'.join(reversed(comments)))
+            file = ArxmlFile().parse_autosar(
+                path, obj, header.xml_namespace, header.xml_schema_location, indent.group(1).decode() if indent else '    ', '\n'.join(reversed(comments))
+            )
             io.files[path] = file
             paths[file_id] = path
             baseline[file_id] = content

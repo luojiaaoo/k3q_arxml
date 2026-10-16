@@ -390,12 +390,53 @@ def test_lossy_compound_element_order_is_rejected(project):
     assert error.value.error.code in {'BINDING_ERROR', 'LOSSY_ROUND_TRIP', 'VALIDATION_FAILED'}
 
 
-def test_loading_rejects_versions_duplicate_paths_and_workspace_escape(project, tmp_path):
+@pytest.mark.parametrize('version', ['00044', '00048'])
+def test_version_mismatch_warns_and_allows_query_edit_and_save(project, version):
     service, _, paths = project
     mismatched = service.workspace / 'wrong.arxml'
-    mismatched.write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00048.xsd'), encoding='utf-8')
+    mismatched.write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', f'AUTOSAR_{version}.xsd'), encoding='utf-8')
+    original = mismatched.read_bytes()
+    info = service.open_project([str(mismatched)])
+    warnings = [item for item in info.diagnostics if item.code == 'SCHEMA_MISMATCH']
+    assert len(warnings) == 1 and warnings[0].severity == 'warning'
+    assert warnings[0].file_id == 'f1' and warnings[0].ref == '/'
+    assert version in warnings[0].message and info.schema_version in warnings[0].message
+    assert service.get_node(info.project_id, '/Types/Speed').node.short_name == 'Speed'
+    assert mismatched.read_bytes() == original
+    validation = service.validate_project(info.project_id)
+    assert validation.valid and warnings[0] in validation.diagnostics
+    renamed = service.rename_node(info.project_id, '/Types/Speed', 'Velocity', info.revision)
+    assert renamed.revision == 1
+    preview = service.preview_changes(info.project_id)
+    assert warnings[0] in preview.diagnostics
+    saved = service.save_changes(info.project_id, preview.preview_token)
+    assert Path(saved.files[0].backup_path).read_bytes() == original
+    reloaded = service.open_project([str(mismatched)])
+    assert service.get_node(reloaded.project_id, '/Types/Velocity').node.short_name == 'Velocity'
+    assert warnings[0] in reloaded.diagnostics
+    schema_location = read_xml(mismatched.read_bytes()).get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation')
+    assert schema_location == f'{NAMESPACE} AUTOSAR_{version}.xsd'
+
+
+def test_version_mismatch_does_not_ignore_unknown_xml(project):
+    service, _, paths = project
+    mismatched = service.workspace / 'unknown-version-element.arxml'
+    content = paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd')
+    mismatched.write_text(content.replace('</ELEMENTS>', '<UNKNOWN-VERSION-ELEMENT/></ELEMENTS>'), encoding='utf-8')
+    original = mismatched.read_bytes()
+    projects = set(service.projects)
     with pytest.raises(McpServiceError) as error:
         service.open_project([str(mismatched)])
+    assert error.value.error.code == 'BINDING_ERROR'
+    assert set(service.projects) == projects and mismatched.read_bytes() == original
+
+
+def test_loading_rejects_missing_schema_duplicate_paths_and_workspace_escape(project, tmp_path):
+    service, _, paths = project
+    missing_schema = service.workspace / 'missing-schema.arxml'
+    missing_schema.write_text(paths[0].read_text(encoding='utf-8').replace(f'xsi:schemaLocation="{NAMESPACE} AUTOSAR_4-2-2.xsd"', ''), encoding='utf-8')
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(missing_schema)])
     assert error.value.error.code == 'SCHEMA_MISMATCH'
     with pytest.raises(McpServiceError):
         service.open_project([str(paths[0]), str(paths[0])])
@@ -458,6 +499,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
     from mcp.client.stdio import stdio_client
 
     service, _, paths = project
+    paths[0].write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd'), encoding='utf-8')
     root = Path(__file__).resolve().parents[1]
     parameters = StdioServerParameters(
         command='uv',
@@ -477,6 +519,8 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
                 assert not opened.is_error, opened.content
+                mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
+                assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
                 project_id = opened.structured_content['project_id']
                 found = await client.call_tool('find_nodes', {'project_id': project_id, 'name': 'Speed'})
                 assert found.structured_content['total'] == 1

@@ -62,7 +62,7 @@ uv run -m k3q_arxml generate 4.2.2
 - 用户统一使用 `from k3q_arxml import IOArxml, autosar`，autosar 是真实生成模块。不要重新引入懒加载代理、动态版本导出或 `change_autosar_version()`。
 - 包入口直接导入 ARXML 接口，不增加延迟导入或动态导出。项目自带默认 4.2.2 绑定；CLI 使用正常相对导入，不兼容直接执行 `cli.py`。绑定缺失时提示恢复项目自带文件。
 - AUTOSAR 绑定由用户在启动前通过命令行准备，MCP 启动后版本固定。AI 文件操作流程不负责版本生成、切换或服务重启，也不重复发起版本确认；使用说明放在 skill 中。
-- `ArxmlFile` 在对象解析前核对文件 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定的 `SCHEMA_VERSION`；版本不一致或缺少声明时抛出 `ValueError`，不自动切换版本。
+- `ArxmlFile` 在对象解析前核对文件 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定的 `SCHEMA_VERSION`；版本不一致时告警并继续解析，缺少声明时抛出 `ValueError`。MCP 将版本不匹配作为结构化 warning 返回，不仅凭版本号拒绝加载；实际绑定解析、XSD、引用及编辑往返校验仍正常执行，保存保留原文件声明，不自动切换版本。
 - 重新生成其他版本后使用新 Python 进程，避免模块缓存中的旧类型；一个运行进程使用一个版本。
 - `ar(clazz)` 返回 `list[ArxmlNamedNode[T]]`，每项的 `.xml_obj` 保留具体类型。维护这些泛型信息，避免退化为 Any。
 

@@ -11,13 +11,44 @@
 
 `k3q_arxml` 用于读取、查询和修改 AUTOSAR ARXML 文件，支持同时处理多个文件。
 
-## 准备环境
+## 安装
 
-先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，然后在仓库根目录执行：
+需要 Python 3.11 或以上版本。发行包名为 `k3q-arxml`，Python 导入名为 `k3q_arxml`。
+
+### 从 PyPI 安装
+
+以下命令需有已发布到 PyPI 的可用版本；维护者的首次发布流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+
+已有 Python 环境时执行：
+
+```console
+python -m pip install k3q-arxml
+```
+
+需要使用 MCP 时安装可选依赖：
+
+```console
+python -m pip install "k3q-arxml[mcp]"
+```
+
+也可以使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理自己的项目，在项目目录执行：
+
+```console
+uv init --bare --python 3.11
+uv add "k3q-arxml[mcp]"
+```
+
+已有 uv 项目时跳过 `uv init`；仅使用 Python 库时可改为 `uv add k3q-arxml`。后续命令以 uv 为例，pip 用户将 `uv run -m k3q_arxml ...` 改为 `python -m k3q_arxml ...`，运行脚本用 `python example.py`。uv 的依赖管理方式见 [官方项目指南](https://docs.astral.sh/uv/guides/projects/)。
+
+### 从源码安装开发环境
+
+需要开发本库或运行仓库样例时，下载仓库并在仓库根目录执行：
 
 ```console
 uv sync --locked
 ```
+
+### 准备 AUTOSAR 绑定
 
 查看支持的 AUTOSAR 版本，并确认与 ARXML 文件匹配的版本。以下以已确认的 4.2.2 为例：
 
@@ -32,7 +63,7 @@ uv run -m k3q_arxml generate 4.2.2
 
 ## 读取文件
 
-将下面的代码保存为仓库根目录下的 `example.py`，运行 `uv run python example.py`：
+将下面的代码保存为项目目录下的 `example.py`，运行 `uv run python example.py`。示例使用仓库中的 `test/ThrottlePositionControlComposition.arxml`；从 PyPI 安装后，需另行下载该样例或将路径改为自己的 ARXML 文件：
 
 ```python
 from pathlib import Path
@@ -236,7 +267,7 @@ io_arxml.print(print_filepath=Path('model.txt'))  # 输出到文本文件。
 
 ## 名称处理脚本
 
-查看参数用法：
+以下脚本位于源码仓库，不随 PyPI 包安装。在仓库根目录查看参数用法：
 
 ```console
 uv run python chg_adt_name.py --help
@@ -250,18 +281,15 @@ uv run python chg_adt_idt_name.py --help
 
 ## 通过 MCP 供大模型使用
 
-MCP 服务使用本地 stdio，通过以下配置接入模型客户端。
-
-用户先按 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)准备绑定。安装 MCP 依赖后，通过 `mcp` 子命令启动服务：
+MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 从 PyPI 准备 MCP 依赖：
 
 ```console
-uv sync --locked --extra mcp
-uv run -m k3q_arxml mcp
+uv run --python 3.11 --with "k3q-arxml[mcp]" -m k3q_arxml mcp
 ```
 
 该命令等待 MCP 客户端通过 stdin/stdout 通信，启动后不显示交互菜单。日志与错误写入 stderr。服务只访问启动目录及其子目录中的普通文件，文件路径会先解析为绝对路径。服务启动后使用固定版本。
 
-对于支持 `command` / `args` / `cwd` / `env` 配置的 MCP 客户端，可以按实际位置填写。当前以源码运行，`--project` 指定 uv 环境所在项目，`PYTHONPATH` 指定源码父目录，`cwd` 指定业务模型目录：
+客户端配置示例。`--python 3.11` 选择项目验证使用的 Python，`--with` 指定从 PyPI 安装的包；无需配置源码路径或 `PYTHONPATH`：
 
 ```json
 {
@@ -269,16 +297,17 @@ uv run -m k3q_arxml mcp
     "arxml": {
       "command": "uv",
       "args": [
-        "--project", "D:\\持续迭代项目\\k3q_arxml",
-        "run", "--extra", "mcp", "-m", "k3q_arxml", "mcp"
-      ],
-      "cwd": "D:\\项目模型",
-      "env": {
-        "PYTHONPATH": "D:\\持续迭代项目\\k3q_arxml"
-      }
+        "run", "--python", "3.11",
+        "--with", "k3q-arxml[mcp]",
+        "-m", "k3q_arxml", "mcp"
+      ]
     }
   }
 }
 ```
+
+服务由客户端启动，无需再手动运行第二个 stdio 服务。服务以客户端启动进程时的工作目录作为文件范围；若需指定业务模型目录，可使用客户端的 `cwd` 设置。
+
+uv 自动发现启动目录或上级目录中的项目，`--with` 的额外依赖由 uv 准备。启动时使用当前目录的环境，不指定其他项目路径。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)，Skill 需从仓库单独复制到智能体支持的技能目录。
 
 工具说明、编辑流程、校验与恢复见 [MCP.md](MCP.md)。
