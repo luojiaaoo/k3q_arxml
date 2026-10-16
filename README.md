@@ -303,6 +303,8 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
 
 客户端配置示例。`--python 3.11` 选择项目验证使用的 Python，`--default-index` 使用国内镜像，`--with` 指定要安装的包；无需配置源码路径或 `PYTHONPATH`：
 
+Linux: 
+
 ```json
 {
   "mcpServers": {
@@ -310,6 +312,25 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
       "command": "uv",
       "args": [
         "run", "--python", "3.11",
+        "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
+        "--with", "k3q-arxml[mcp]==2.1.3",
+        "-m", "k3q_arxml", "mcp",
+        "--schema-version", "00044"
+      ]
+    }
+  }
+}
+```
+
+Windows:
+
+```json
+{
+  "mcpServers": {
+    "arxml": {
+      "command": "cmd",
+      "args": [
+        "/c", "uv", "run", "--python", "3.11",
         "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
         "--with", "k3q-arxml[mcp]==2.1.3",
         "-m", "k3q_arxml", "mcp",
