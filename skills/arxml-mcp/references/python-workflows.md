@@ -10,7 +10,17 @@
 | 固化 MCP 的重命名、局部 XML 编辑、校验、预览和备份保存 | 在 Python 中直接实例化 `ArxmlMcpService` |
 | 操作现有 MCP 会话中的未保存修改 | 继续调用该会话的工具；新脚本无法接管其他进程的对象 |
 
-使用安装了对应绑定的同一个 Python 环境。源码仓库使用 `uv run python task.py ...`；已安装发行包的环境使用 `python task.py ...`。脚本不会自动生成或切换绑定，也不会重启正在运行的服务。
+脚本编写完成后，在当前任务目录创建 Python 3.11 的 `.venv`，安装依赖并运行。已有兼容环境时复用，不重复创建。以下以脚本名 `script.py` 为例，无需手动激活环境：
+
+```bash
+uv venv --python=3.11                     # 在当前目录创建 Python 3.11 的 .venv
+uv pip install "k3q-arxml[mcp]==2.1.2"      # 安装 ARXML 库及 MCP 依赖
+uv run python script.py                   # 运行编写好的脚本
+```
+
+脚本使用其他第三方包时，按实际需要用 `uv pip install 包名` 补充安装。上述命令用于独立任务目录；源码仓库开发仍在仓库根目录执行 `uv sync --locked --extra mcp`，再用 `uv run python script.py ...` 运行，项目依赖按仓库规范管理。
+
+安装依赖与运行脚本使用同一个环境及其中已准备的绑定。脚本不会自动生成或切换绑定，也不会重启正在运行的服务。
 
 `mcp --schema-version` 选择的绑定仅用于该服务的独立临时包，不会改变同一 Python 安装环境里的默认绑定。独立任务脚本需由用户在自己的环境中准备所需绑定，并使用新进程；执行前可输出 `autosar.SCHEMA_VERSION` 核对，不能直接沿用 MCP 的临时版本假设。
 
@@ -156,8 +166,8 @@ if __name__ == '__main__':
 运行时用实际目标替换示例路径，并加载所有希望同步引用的文件：
 
 ```console
-python rename_task.py types.arxml interfaces.arxml --workspace "D:/模型目录" --ref /Types/Speed --new-name Velocity
-python rename_task.py types.arxml interfaces.arxml --workspace "D:/模型目录" --ref /Types/Speed --new-name Velocity --save
+uv run python rename_task.py types.arxml interfaces.arxml --workspace "D:/模型目录" --ref /Types/Speed --new-name Velocity
+uv run python rename_task.py types.arxml interfaces.arxml --workspace "D:/模型目录" --ref /Types/Speed --new-name Velocity --save
 ```
 
 若用户已授权修改并保存，可直接使用 `--save`，不重复请求确认。脚本失败时保留异常和已输出结果；最后的保存后复查如果失败，文件可能已经保存，不能报告成“完全未修改”。遇到冲突或恢复错误，按 [操作指南](mcp-workflows.md#错误处理与保存恢复)处理，不改用核心库直接覆盖原文件。
