@@ -1,0 +1,503 @@
+"""ARXML MCP 业务行为与真实 stdio 传输回归。"""
+
+import asyncio
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from shutil import copy2, copytree
+
+import pytest
+from lxml import etree
+
+from k3q_arxml import ArxmlFile, autosar
+from k3q_arxml.mcp import persistence
+from k3q_arxml.mcp.schemas import McpPatchOperation
+from k3q_arxml.mcp.service import ArxmlMcpService
+from k3q_arxml.mcp.xml import NAMESPACE, McpServiceError, clone_file, read_xml
+
+
+def document(package, elements):
+    return (
+        f'<AUTOSAR xmlns="{NAMESPACE}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        f'xsi:schemaLocation="{NAMESPACE} AUTOSAR_4-2-2.xsd">'
+        f'<AR-PACKAGES><AR-PACKAGE><SHORT-NAME>{package}</SHORT-NAME><ELEMENTS>{elements}</ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>'
+    )
+
+
+def datatype(name, *, namespace=False):
+    declaration = f' xmlns="{NAMESPACE}"' if namespace else ''
+    return f'<APPLICATION-PRIMITIVE-DATA-TYPE{declaration}><SHORT-NAME>{name}</SHORT-NAME><CATEGORY>VALUE</CATEGORY></APPLICATION-PRIMITIVE-DATA-TYPE>'
+
+
+@pytest.fixture
+def project(tmp_path):
+    if autosar.SCHEMA_VERSION != '4.2.2':
+        pytest.skip('MCP ARXML 回归需要 4.2.2 绑定')
+    workspace = tmp_path / '中文 工程'
+    workspace.mkdir()
+    types = workspace / '数据 类型.arxml'
+    references = workspace / '引用.arxml'
+    types.write_text(document('Types', datatype('Speed') + datatype('Other')), encoding='utf-8')
+    variables = ''.join(
+        f'<VARIABLE-DATA-PROTOTYPE><SHORT-NAME>Value{index}</SHORT-NAME><TYPE-TREF DEST="APPLICATION-PRIMITIVE-DATA-TYPE">/Types/Speed</TYPE-TREF></VARIABLE-DATA-PROTOTYPE>'
+        for index in range(2)
+    )
+    references.write_text(
+        document(
+            'Interfaces',
+            f'<SENDER-RECEIVER-INTERFACE><SHORT-NAME>Interface</SHORT-NAME><IS-SERVICE>false</IS-SERVICE><DATA-ELEMENTS>{variables}</DATA-ELEMENTS></SENDER-RECEIVER-INTERFACE>',
+        ),
+        encoding='utf-8',
+    )
+    service = ArxmlMcpService(workspace)
+    info = service.open_project([types.name, references.name])
+    return service, info, [types, references]
+
+
+def patch(service, info, ref, operations, **kwargs):
+    revision = service.project_info(info.project_id).revision
+    return service.patch_xml(info.project_id, ref, [McpPatchOperation(**operation) for operation in operations], revision, **kwargs)
+
+
+def test_queries_pagination_xml_references_and_types(project):
+    service, info, paths = project
+    assert info.schema_version == '4.2.2'
+    assert info.files[0].filepath == str(paths[0])
+    page = service.find_nodes(info.project_id, xml_tag='APPLICATION-PRIMITIVE-DATA-TYPE', ref_prefix='/Types', limit=1)
+    assert page.total == 2 and page.next_offset == 1
+    assert page.items[0].file_id == 'f1' and page.items[0].ref == '/Types/Speed'
+    detail = service.get_node(info.project_id, '/Types/Speed', include_xml=True, xml_limit=10)
+    assert len(detail.xml) == 10 and detail.next_offset == 10
+    assert service.get_node(info.project_id, '/Types/Speed').xml is None
+    category = service.get_node(info.project_id, '/Types/Speed', xpath='./ar:CATEGORY')
+    assert etree.fromstring(category.xml.encode()).text == 'VALUE'
+    rows = service.find_references(info.project_id, '/Types/Speed', limit=1)
+    assert rows.total == 2 and rows.next_offset == 1
+    assert rows.items[0].owner_ref == '/Interfaces/Interface/Value0'
+    assert rows.items[0].xpath == './ar:TYPE-TREF[1]'
+    description = service.describe_type('SW-BASE-TYPE')
+    assert any(field.xml_name == 'UUID' and field.kind == 'attribute' for field in description.fields)
+    assert len([field for field in description.fields if field.python_field == 'choice']) > 1
+    nested = service.describe_type('TYPE-TREF', python_type='VariableDataPrototype.TypeTref')
+    assert any(field.xml_name == 'DEST' and field.enum_values for field in nested.fields)
+    assert service.describe_type('SHORT-NAME').python_type == 'Identifier'
+    assert service.validate_project(info.project_id).valid
+
+
+@pytest.mark.parametrize(('ref', 'name', 'new_target'), [('/Types/Speed', 'Velocity', '/Types/Velocity'), ('/Types', 'NewTypes', '/NewTypes/Speed')])
+def test_rename_updates_cross_file_references_and_saves_with_backup(project, ref, name, new_target):
+    service, info, paths = project
+    originals = [path.read_bytes() for path in paths]
+    result = service.rename_node(info.project_id, ref, name, 0)
+    assert result.revision == 1 and result.updated_references == 2
+    assert result.affected_files == ['f1', 'f2']
+    assert service.find_references(info.project_id, new_target).total == 2
+    assert [path.read_bytes() for path in paths] == originals
+    preview = service.preview_changes(info.project_id, limit=1)
+    assert preview.total_lines > 1 and preview.next_offset == 1
+    assert service.preview_changes(info.project_id, offset=1).preview_token == preview.preview_token
+    saved = service.save_changes(info.project_id, preview.preview_token)
+    assert saved.revision == 2 and len(saved.files) == 2
+    assert [Path(item.backup_path).read_bytes() for item in saved.files] == originals
+    assert json.loads(Path(saved.recovery_manifest).read_text(encoding='utf-8'))['status'] == 'complete'
+    assert all(not file.dirty for file in service.project_info(info.project_id).files)
+    reloaded = service.open_project([str(path) for path in paths])
+    assert service.find_references(reloaded.project_id, new_target).total == 2
+
+
+def test_failed_rename_does_not_publish_objects_or_indexes(project):
+    service, info, paths = project
+    state = service.projects[info.project_id]
+    original = state.io.files[paths[0]]
+    with pytest.raises(McpServiceError):
+        service.rename_node(info.project_id, '/Types/Speed', 'Other', 0)
+    assert state.io.files[paths[0]] is original
+    assert original.ref(('Types', 'Speed')).short_name == 'Speed'
+    assert service.find_references(info.project_id, '/Types/Speed').total == 2
+    assert state.revision == 0 and not original._dirty
+
+
+def test_declared_field_clone_does_not_bind_edits_to_old_file(project):
+    service, info, paths = project
+    original = service.projects[info.project_id].io.files[paths[0]]
+    candidate = clone_file(original)
+    node = candidate.ref(('Types', 'Speed'))
+    node.xml_obj.uuid = 'candidate-only'
+    node.xml_obj.edited()
+    assert candidate._dirty and 'candidate-only' in candidate.index.uuids
+    assert not original._dirty and not original.index.uuids
+    assert node.xml_obj.arxml_parent is not original.ref(('Types', 'Speed')).xml_obj.arxml_parent
+
+
+def test_patch_text_attributes_and_reference_target(project):
+    service, info, _ = project
+    patch(service, info, '/Types/Speed', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'uuid-one'}])
+    patch(service, info, '/Types/Speed', [{'op': 'remove_attribute', 'xpath': '.', 'attribute': 'UUID'}, {'op': 'set_text', 'xpath': './ar:CATEGORY', 'value': 'VALUE'}])
+    row = service.find_references(info.project_id, '/Types/Speed').items[0]
+    patch(service, info, row.owner_ref, [{'op': 'set_text', 'xpath': row.xpath, 'value': '/Types/Other'}], file_id=row.file_id)
+    assert service.find_references(info.project_id, '/Types/Other').total == 1
+    assert service.find_references(info.project_id, '/Types/Speed').total == 1
+    assert 'UUID=' not in service.get_node(info.project_id, '/Types/Speed', include_xml=True).xml
+
+
+def test_patch_insert_replace_delete_and_order(project):
+    service, info, _ = project
+    patch(
+        service,
+        info,
+        '/Types',
+        [
+            {'op': 'insert_before', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[2]', 'xml': datatype('Before', namespace=True)},
+            {'op': 'insert_after', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[2]', 'xml': datatype('After', namespace=True)},
+            {'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': datatype('Last', namespace=True)},
+        ],
+    )
+    names = [item.short_name for item in service.find_nodes(info.project_id, xml_tag='APPLICATION-PRIMITIVE-DATA-TYPE').items]
+    assert names == ['Speed', 'Before', 'After', 'Other', 'Last']
+    replacement = datatype('Before', namespace=True).replace('<CATEGORY>VALUE</CATEGORY>', '<CATEGORY>VALUE</CATEGORY><SW-DATA-DEF-PROPS/>')
+    patch(service, info, '/Types', [{'op': 'replace', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[2]', 'xml': replacement}])
+    patch(service, info, '/Types', [{'op': 'delete', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[2]'}])
+    assert not service.find_nodes(info.project_id, name='Before').items
+
+
+def test_document_root_supports_top_level_package_changes(project):
+    service, info, _ = project
+    fragment = f'<AR-PACKAGE xmlns="{NAMESPACE}"><SHORT-NAME>Added</SHORT-NAME></AR-PACKAGE>'
+    patch(service, info, '/', [{'op': 'append', 'xpath': './ar:AR-PACKAGES', 'xml': fragment}], file_id='f1')
+    assert service.get_node(info.project_id, '/Added').node.xml_tag == 'AR-PACKAGE'
+    patch(service, info, '/', [{'op': 'delete', 'xpath': './ar:AR-PACKAGES/ar:AR-PACKAGE[2]'}], file_id='f1')
+    assert not service.find_nodes(info.project_id, name='Added').items
+
+
+@pytest.mark.parametrize(
+    'operations',
+    [
+        [{'op': 'set_text', 'xpath': './ar:SHORT-NAME', 'value': 'HiddenRename'}],
+        [{'op': 'replace', 'xpath': './ar:SHORT-NAME', 'xml': f'<SHORT-NAME xmlns="{NAMESPACE}">HiddenRename</SHORT-NAME>'}],
+        [{'op': 'set_text', 'xpath': '../ar:SHORT-NAME', 'value': 'escape'}],
+        [{'op': 'set_text', 'xpath': '/ar:AUTOSAR', 'value': 'escape'}],
+        [{'op': 'set_attribute', 'xpath': './/ar:SHORT-NAME', 'attribute': 'S', 'value': 'ambiguous'}],
+        [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': '<INVALID/>'}],
+        [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': '<broken>'}],
+        [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': datatype('Speed', namespace=True)}],
+        [{'op': 'delete', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[1]'}],
+        [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UNKNOWN', 'value': 'lost'}],
+        [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'first'}, {'op': 'delete', 'xpath': './ar:MISSING'}],
+    ],
+)
+def test_invalid_patch_is_atomic(project, operations):
+    service, info, paths = project
+    state = service.projects[info.project_id]
+    old_file = state.io.files[paths[0]]
+    original = old_file.render()
+    with pytest.raises(McpServiceError):
+        patch(service, info, '/Types', operations)
+    assert state.io.files[paths[0]] is old_file
+    assert old_file.render() == original and not old_file._dirty and state.revision == 0
+
+
+@pytest.mark.parametrize(('value', 'attribute'), [('/Missing/Type', None), ('SW-BASE-TYPE', 'DEST')])
+def test_new_unresolved_or_wrong_dest_reference_is_rejected(project, value, attribute):
+    service, info, _ = project
+    operation = (
+        {'op': 'set_attribute', 'xpath': './ar:TYPE-TREF', 'attribute': attribute, 'value': value} if attribute else {'op': 'set_text', 'xpath': './ar:TYPE-TREF', 'value': value}
+    )
+    with pytest.raises(McpServiceError):
+        patch(service, info, '/Interfaces/Interface/Value0', [operation])
+    assert service.project_info(info.project_id).revision == 0
+
+
+def test_existing_unloaded_references_are_warnings(project):
+    service, _, paths = project
+    info = service.open_project([str(paths[1])])
+    assert any(item.code == 'UNRESOLVED_REFERENCE' for item in info.diagnostics)
+    validation = service.validate_project(info.project_id)
+    assert validation.valid and len(validation.diagnostics) == 2
+    result = patch(service, info, '/Interfaces/Interface', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'updated'}])
+    assert result.revision == 1
+
+
+def test_revision_preview_and_unsaved_close_guards(project):
+    service, info, _ = project
+    preview = service.preview_changes(info.project_id)
+    service.rename_node(info.project_id, '/Types/Speed', 'Velocity', 0)
+    with pytest.raises(McpServiceError, match='revision'):
+        service.rename_node(info.project_id, '/Types/Other', 'OtherName', 0)
+    with pytest.raises(McpServiceError) as error:
+        service.save_changes(info.project_id, preview.preview_token)
+    assert error.value.error.code == 'STALE_PREVIEW'
+    with pytest.raises(McpServiceError):
+        service.close_project(info.project_id)
+    assert service.close_project(info.project_id, discard_changes=True).closed
+
+
+def test_external_file_change_blocks_all_writes(project):
+    service, info, paths = project
+    original = paths[0].read_bytes()
+    service.rename_node(info.project_id, '/Types/Speed', 'Velocity', 0)
+    paths[1].write_bytes(paths[1].read_bytes() + b'\n<!-- external change -->')
+    external = paths[1].read_bytes()
+    with pytest.raises(McpServiceError) as error:
+        service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    assert error.value.error.code == 'FILE_CONFLICT'
+    assert paths[0].read_bytes() == original and paths[1].read_bytes() == external
+
+
+def test_save_failure_restores_already_replaced_file(project, monkeypatch):
+    service, info, paths = project
+    originals = [path.read_bytes() for path in paths]
+    service.rename_node(info.project_id, '/Types/Speed', 'Velocity', 0)
+    replace = os.replace
+
+    def fail_second(source, destination):
+        if Path(destination) == paths[1] and str(source).endswith('.tmp'):
+            raise OSError('simulated second-file failure')
+        return replace(source, destination)
+
+    with monkeypatch.context() as context:
+        context.setattr(persistence.os, 'replace', fail_second)
+        with pytest.raises(McpServiceError) as error:
+            service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    assert error.value.error.code == 'SAVE_FAILED'
+    assert [path.read_bytes() for path in paths] == originals
+    manifests = list(service.workspace.glob('.k3q-mcp-recovery-*.json'))
+    assert json.loads(manifests[0].read_text(encoding='utf-8'))['status'] == 'rolled_back'
+    assert all(file.dirty for file in service.project_info(info.project_id).files)
+    service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+
+
+def test_pending_recovery_blocks_open_and_edit(project):
+    service, info, paths = project
+    (service.workspace / '.k3q-mcp-recovery-interrupted.json').write_text('{"status":"pending","files":[]}', encoding='utf-8')
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(paths[0])])
+    assert error.value.error.code == 'RECOVERY_REQUIRED'
+    with pytest.raises(McpServiceError):
+        service.rename_node(info.project_id, '/Types/Speed', 'Velocity', 0)
+
+
+def test_rollback_failure_preserves_manifest_and_backups(project, monkeypatch):
+    service, info, paths = project
+    originals = [path.read_bytes() for path in paths]
+    service.rename_node(info.project_id, '/Types/Speed', 'Velocity', 0)
+    replace = os.replace
+
+    def fail_save_and_restore(source, destination):
+        if Path(destination) == paths[1] or str(source).endswith('.restore.tmp'):
+            raise OSError('simulated restore failure')
+        return replace(source, destination)
+
+    with monkeypatch.context() as context:
+        context.setattr(persistence.os, 'replace', fail_save_and_restore)
+        with pytest.raises(McpServiceError) as error:
+            service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    assert error.value.error.code == 'RECOVERY_REQUIRED'
+    manifest = json.loads(next(service.workspace.glob('.k3q-mcp-recovery-*.json')).read_text(encoding='utf-8'))
+    assert manifest['status'] == 'rollback_failed' and manifest['rollback_errors']
+    assert [Path(item['backup_path']).read_bytes() for item in manifest['files']] == originals
+    assert paths[0].read_bytes() != originals[0] and paths[1].read_bytes() == originals[1]
+
+
+def test_external_change_in_untouched_file_also_blocks_save(project):
+    service, info, paths = project
+    patch(service, info, '/Types/Other', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'change'}])
+    assert not service.project_info(info.project_id).files[1].dirty
+    paths[1].write_bytes(paths[1].read_bytes() + b'\n')
+    with pytest.raises(McpServiceError) as error:
+        service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    assert error.value.error.code == 'FILE_CONFLICT'
+
+
+def test_preview_bounds_minified_xml_lines(project):
+    service, info, _ = project
+    patch(service, info, '/Types/Other', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'x' * 6000}])
+    preview = service.preview_changes(info.project_id, limit=200)
+    assert any(item.continuation for item in preview.lines)
+    assert all(len(item.text) <= 2000 for item in preview.lines)
+
+
+def test_parseable_invalid_xsd_can_be_loaded_and_repaired(project):
+    service, _, paths = project
+    paths[0].write_text(document('Types', datatype('9Speed')), encoding='utf-8')
+    info = service.open_project([str(paths[0])])
+    assert any(item.code == 'XSD_ERROR' for item in info.diagnostics)
+    with pytest.raises(McpServiceError):
+        patch(service, info, '/Types/9Speed', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'still-invalid'}])
+    service.rename_node(info.project_id, '/Types/9Speed', 'Speed', 0)
+    assert service.validate_project(info.project_id).valid
+
+
+def test_batch_can_retarget_references_and_delete_definition_in_same_file(project):
+    service, _, paths = project
+    root = read_xml(paths[0].read_bytes())
+    root.find(f'{{{NAMESPACE}}}AR-PACKAGES').append(read_xml(paths[1].read_bytes()).find(f'{{{NAMESPACE}}}AR-PACKAGES')[0])
+    merged = service.workspace / 'merged.arxml'
+    merged.write_bytes(etree.tostring(root, encoding='utf-8', xml_declaration=True))
+    info = service.open_project([str(merged)])
+    prefix = './ar:AR-PACKAGES/ar:AR-PACKAGE[2]/ar:ELEMENTS/ar:SENDER-RECEIVER-INTERFACE/ar:DATA-ELEMENTS'
+    patch(
+        service,
+        info,
+        '/',
+        [
+            {'op': 'set_text', 'xpath': prefix + '/ar:VARIABLE-DATA-PROTOTYPE[1]/ar:TYPE-TREF', 'value': '/Types/Other'},
+            {'op': 'set_text', 'xpath': prefix + '/ar:VARIABLE-DATA-PROTOTYPE[2]/ar:TYPE-TREF', 'value': '/Types/Other'},
+            {'op': 'delete', 'xpath': './ar:AR-PACKAGES/ar:AR-PACKAGE[1]/ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[1]'},
+        ],
+        file_id='f1',
+    )
+    assert service.find_references(info.project_id, '/Types/Other').total == 2
+    assert not service.find_nodes(info.project_id, name='Speed').items
+
+
+def test_rename_subtree_with_internal_references(project):
+    service, _, paths = project
+    elements = ''.join(
+        f'<APPLICATION-RECORD-ELEMENT><SHORT-NAME>Self{index}</SHORT-NAME><TYPE-TREF DEST="APPLICATION-RECORD-DATA-TYPE">/Types/Record</TYPE-TREF></APPLICATION-RECORD-ELEMENT>'
+        for index in range(2)
+    )
+    paths[0].write_text(
+        document(
+            'Types', f'<APPLICATION-RECORD-DATA-TYPE><SHORT-NAME>Record</SHORT-NAME><CATEGORY>STRUCTURE</CATEGORY><ELEMENTS>{elements}</ELEMENTS></APPLICATION-RECORD-DATA-TYPE>'
+        ),
+        encoding='utf-8',
+    )
+    info = service.open_project([str(paths[0])])
+    result = service.rename_node(info.project_id, '/Types', 'NewTypes', 0)
+    assert result.updated_references == 2
+    assert service.find_references(info.project_id, '/NewTypes/Record').total == 2
+    assert service.get_node(info.project_id, '/NewTypes/Record/Self0').node.short_name == 'Self0'
+
+
+def test_schema_header_cannot_be_changed_by_patch(project):
+    service, info, _ = project
+    with pytest.raises(McpServiceError):
+        patch(
+            service,
+            info,
+            '/',
+            [{'op': 'set_attribute', 'xpath': '.', 'attribute': '{http://www.w3.org/2001/XMLSchema-instance}schemaLocation', 'value': f'{NAMESPACE} AUTOSAR_00048.xsd'}],
+            file_id='f1',
+        )
+
+
+def test_lossy_compound_element_order_is_rejected(project):
+    service, info, _ = project
+    with pytest.raises(McpServiceError) as error:
+        patch(service, info, '/Types/Speed', [{'op': 'insert_before', 'xpath': './ar:SHORT-NAME', 'xml': f'<CATEGORY xmlns="{NAMESPACE}">VALUE</CATEGORY>'}])
+    assert error.value.error.code in {'BINDING_ERROR', 'LOSSY_ROUND_TRIP', 'VALIDATION_FAILED'}
+
+
+def test_loading_rejects_versions_duplicate_paths_and_workspace_escape(project, tmp_path):
+    service, _, paths = project
+    mismatched = service.workspace / 'wrong.arxml'
+    mismatched.write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00048.xsd'), encoding='utf-8')
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(mismatched)])
+    assert error.value.error.code == 'SCHEMA_MISMATCH'
+    with pytest.raises(McpServiceError):
+        service.open_project([str(paths[0]), str(paths[0])])
+    duplicate = service.workspace / 'duplicate.arxml'
+    copy2(paths[0], duplicate)
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(paths[0]), str(duplicate)])
+    assert error.value.error.code == 'DUPLICATE_PATH'
+    outside = tmp_path / 'outside.arxml'
+    copy2(paths[0], outside)
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(outside)])
+    assert error.value.error.code == 'OUTSIDE_WORKSPACE'
+
+
+@pytest.mark.parametrize('content', [b'<!DOCTYPE x [<!ENTITY e "secret">]><x>&e;</x>', b'<!DOCTYPE x SYSTEM "https://example.invalid/external"><x/>', b'<x>'])
+def test_unsafe_and_malformed_xml_is_rejected(content):
+    with pytest.raises(McpServiceError):
+        read_xml(content)
+
+
+def test_sample_round_trip_and_compound_order(tmp_path):
+    if autosar.SCHEMA_VERSION != '4.2.2':
+        pytest.skip('样例需要 4.2.2 绑定')
+    path = tmp_path / 'sample.arxml'
+    copy2(Path(__file__).resolve().parents[1] / 'test/ThrottlePositionControlComposition.arxml', path)
+    service = ArxmlMcpService(tmp_path)
+    info = service.open_project([str(path)])
+    node = service.find_nodes(info.project_id, xml_tag='SW-BASE-TYPE').items[0]
+    before = read_xml(service.get_node(info.project_id, node.ref, include_xml=True).xml)
+    patch(service, info, node.ref, [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'sample-edit'}])
+    service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    after = read_xml(service.get_node(info.project_id, node.ref, include_xml=True).xml)
+    assert [child.tag for child in before] == [child.tag for child in after]
+    assert ArxmlFile().parse_file(path).ref(tuple(node.ref.split('/')[1:])).xml_obj.uuid == 'sample-edit'
+
+
+def test_module_cli_generates_with_bundled_binding_and_mcp_requires_binding(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    isolated = tmp_path / '命令行 环境'
+    copytree(root / 'k3q_arxml', isolated / 'k3q_arxml', ignore=lambda directory, names: {'__pycache__', 'schemas'} & set(names))
+    schema = isolated / 'k3q_arxml/schemas/autosar_4_2_2/AUTOSAR_4-2-2.xsd'
+    schema.parent.mkdir(parents=True)
+    schema.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="sample" type="xs:string"/></xs:schema>', encoding='utf-8')
+    env = {**os.environ, 'PYTHONPATH': str(isolated), 'PYTHONIOENCODING': 'utf-8'}
+    for arguments in (['--help'], ['versions'], ['generate', '--help']):
+        result = subprocess.run([sys.executable, '-m', 'k3q_arxml', *arguments], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+        assert result.returncode == 0, result.stderr
+    generated = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'generate', '4.2.2'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+    assert generated.returncode == 0, generated.stderr
+    assert "SCHEMA_VERSION = '4.2.2'" in (isolated / 'k3q_arxml/autosar.py').read_text(encoding='utf-8')
+    (isolated / 'k3q_arxml/autosar.py').unlink()
+    result = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'mcp'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+    assert result.returncode != 0 and '恢复项目自带' in result.stderr and not result.stdout
+
+
+def test_real_stdio_tools_errors_edit_preview_and_save(project):
+    pytest.importorskip('mcp', reason='真实 stdio 测试需要 uv run --extra mcp pytest')
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    service, _, paths = project
+    root = Path(__file__).resolve().parents[1]
+    parameters = StdioServerParameters(
+        command='uv',
+        args=['--project', str(root), 'run', '--extra', 'mcp', '-m', 'k3q_arxml', 'mcp'],
+        cwd=service.workspace,
+        env={'PYTHONPATH': str(root), 'PYTHONIOENCODING': 'utf-8'},
+    )
+
+    async def run():
+        async with stdio_client(parameters) as (read, write):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                listed = await client.list_tools()
+                assert len(listed.tools) == 12
+                assert all(tool.input_schema and tool.output_schema for tool in listed.tools)
+                outside = await client.call_tool('open_project', {'filepaths': [str(root / 'test/ThrottlePositionControlComposition.arxml')]})
+                assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
+                opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
+                assert not opened.is_error, opened.content
+                project_id = opened.structured_content['project_id']
+                found = await client.call_tool('find_nodes', {'project_id': project_id, 'name': 'Speed'})
+                assert found.structured_content['total'] == 1
+                error = await client.call_tool('get_node', {'project_id': project_id, 'ref': '/Missing'})
+                assert error.is_error and json.loads(error.content[0].text)['code'] == 'NODE_NOT_FOUND'
+                changed = await client.call_tool('rename_node', {'project_id': project_id, 'ref': '/Types', 'new_name': 'Updated', 'revision': 0})
+                assert not changed.is_error and changed.structured_content['updated_references'] == 2
+                patched = await client.call_tool(
+                    'patch_xml',
+                    {
+                        'project_id': project_id,
+                        'ref': '/Updated/Speed',
+                        'revision': 1,
+                        'operations': [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'stdio-edit'}],
+                    },
+                )
+                assert not patched.is_error, patched.content
+                preview = await client.call_tool('preview_changes', {'project_id': project_id})
+                saved = await client.call_tool('save_changes', {'project_id': project_id, 'preview_token': preview.structured_content['preview_token']})
+                assert not saved.is_error and len(saved.structured_content['files']) == 2
+                closed = await client.call_tool('close_project', {'project_id': project_id})
+                assert not closed.is_error
+
+    asyncio.run(asyncio.wait_for(run(), timeout=60))

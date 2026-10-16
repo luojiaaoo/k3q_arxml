@@ -4,6 +4,8 @@
 
 ## 项目概况
 
+通过本项目 MCP 分析或修改 ARXML 文件时，先读取 [`skills/arxml-mcp/SKILL.md`](skills/arxml-mcp/SKILL.md)，按任务需要读取其操作指南和 AUTOSAR 知识参考。源码开发仍遵循本文件；技能中的模型操作流程不替代仓库开发规范。
+
 `k3q_arxml` 是基于 Python、xsdata 和 lxml 的 AUTOSAR ARXML 读取、查询、编辑和回写库，支持多文件对象索引、反向引用查询及 ADT / IDT 名称修改。
 
 - 使用 uv 管理项目；`.python-version` 指定开发使用 Python 3.11，最低运行版本为 3.11。
@@ -21,17 +23,19 @@
 | `k3q_arxml/k3q_arxml.py` | `IOArxml`，负责多文件管理和查询汇总 |
 | `k3q_arxml/__init__.py` | 导出 `IOArxml`、`ArxmlFile`、`ArxmlNamedNode` 和 logger |
 | `k3q_arxml/log.py` | Loguru 的输出、格式和日志级别配置，默认 INFO |
-| `k3q_arxml/__main__.py`、`cli.py` | `python -m k3q_arxml` 的 Click 命令行入口 |
-| `k3q_arxml/schemas.py` | 集中定义 dataclass、Pydantic 模型和类型别名；扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
+| `k3q_arxml/__main__.py`、`cli.py` | 统一通过 `uv run -m k3q_arxml` 调用 CLI；`mcp` 子命令启动服务，文件范围为进程启动目录 |
+| `k3q_arxml/schemas.py` | 定义 ARXML 核心 dataclass、Pydantic 模型和类型别名；扫描实际 schema 目录，建立可用版本与 XSD 路径映射 |
+| `k3q_arxml/mcp/schemas.py` | 集中定义 MCP 请求、响应模型及会话状态，与核心 ARXML 模型分开维护 |
 | `k3q_arxml/schemas/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |
-| `k3q_arxml/autosar.py` | 按需生成的当前版本类型模块，Git 忽略，不手动编辑 |
+| `k3q_arxml/autosar.py` | 项目自带默认 4.2.2 绑定，CLI 按需替换为当前版本，不手动编辑 |
 | `chg_adt_name.py` | 按 SenderReceiverInterface 名称列表为关联 ADT 添加或恢复后缀 |
 | `chg_adt_idt_name.py` | 全局移除文本中的 ADT / IDT 前缀，再为目标数据类型及引用添加前缀 |
 | `test.py`、`test3.py` | 历史手工示例，依赖缺失的 `test/model_merge.arxml`，不是自动化测试入口 |
 | `test/ThrottlePositionControlComposition.arxml` | 4.2.2 schema 的已提交样例 |
 | `tests/` | pytest 回归测试，使用 fixture、参数化用例和临时文件 |
 | `docs/` | DaVinci 与 AUTOSAR 兼容性参考 PDF |
-| `README.md` | 环境、生成命令及使用说明 |
+| `README.md` | 环境、生成命令、Python 使用说明及 MCP 配置方法 |
+| `MCP.md` | MCP 工具、编辑流程、校验、备份和恢复说明 |
 | `pyproject.toml` | 项目元数据、依赖及 Ruff 配置（行宽 180、单引号） |
 | `uv.lock`、`.python-version` | 完整依赖锁文件与开发 Python 版本 |
 
@@ -41,8 +45,8 @@
 
 ```console
 uv sync --locked
-uv run python -m k3q_arxml versions
-uv run python -m k3q_arxml generate 4.2.2
+uv run -m k3q_arxml versions
+uv run -m k3q_arxml generate 4.2.2
 ```
 
 - uv 自动准备 Python 3.11、创建 `.venv` 并安装依赖；后续统一使用 `uv run`，无需激活环境。
@@ -56,7 +60,8 @@ uv run python -m k3q_arxml generate 4.2.2
 
 - 可用版本从 `schemas/autosar_*` 目录扫描，只包含存在对应主 XSD 的版本，不硬编码版本范围。CLI 只生成指定版本，成功后原子替换 `autosar.py`；生成失败保留旧绑定。
 - 用户统一使用 `from k3q_arxml import IOArxml, autosar`，autosar 是真实生成模块。不要重新引入懒加载代理、动态版本导出或 `change_autosar_version()`。
-- 生成文件不存在时，CLI 帮助、版本列表和生成命令必须可用；创建 `IOArxml` 应给出生成指引。
+- 包入口直接导入 ARXML 接口，不增加延迟导入或动态导出。项目自带默认 4.2.2 绑定；CLI 使用正常相对导入，不兼容直接执行 `cli.py`。绑定缺失时提示恢复项目自带文件。
+- AUTOSAR 绑定由用户在启动前通过命令行准备，MCP 启动后版本固定。AI 文件操作流程不负责版本生成、切换或服务重启，也不重复发起版本确认；使用说明放在 skill 中。
 - `ArxmlFile` 在对象解析前核对文件 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定的 `SCHEMA_VERSION`；版本不一致或缺少声明时抛出 `ValueError`，不自动切换版本。
 - 重新生成其他版本后使用新 Python 进程，避免模块缓存中的旧类型；一个运行进程使用一个版本。
 - `ar(clazz)` 返回 `list[ArxmlNamedNode[T]]`，每项的 `.xml_obj` 保留具体类型。维护这些泛型信息，避免退化为 Any。
@@ -88,7 +93,7 @@ uv run python -m k3q_arxml generate 4.2.2
 ## 验证与交付
 
 ```console
-uv run python -m k3q_arxml generate 4.2.2
+uv run -m k3q_arxml generate 4.2.2
 uv run pytest -v
 uv run ruff check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
 uv run ruff format --check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py

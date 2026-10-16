@@ -49,7 +49,7 @@ class TestGenerate:
         assert result.exit_code == 2
         assert not (self.root / 'autosar.py').exists()
 
-    def test_versions_does_not_require_a_generated_module(self):
+    def test_versions_lists_discovered_schemas(self):
         result = self.runner.invoke(cli, ['versions'])
         assert result.exit_code == 0
         assert '4.2.2' in result.output.splitlines()

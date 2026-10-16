@@ -19,16 +19,16 @@
 uv sync --locked
 ```
 
-查看支持的 AUTOSAR 版本，并选择与 ARXML 文件匹配的版本：
+查看支持的 AUTOSAR 版本，并确认与 ARXML 文件匹配的版本。以下以已确认的 4.2.2 为例：
 
 ```console
-uv run python -m k3q_arxml versions
-uv run python -m k3q_arxml generate 4.2.2
+uv run -m k3q_arxml versions
+uv run -m k3q_arxml generate 4.2.2
 ```
 
 仓库自带样例使用 4.2.2。处理其他文件时，可查看文件开头 `xsi:schemaLocation` 中的 XSD 文件名来确认版本，例如 `AUTOSAR_4-2-2.xsd` 对应 `4.2.2`。
 
-更换版本时，重新执行 `generate <版本>`，再重新启动 Python 脚本或交互环境。同一次运行中的文件应使用相同版本。
+项目自带 4.2.2 绑定。更换版本时，停止现有服务，执行 `uv run -m k3q_arxml generate <版本>`，再重新启动 Python 脚本或交互环境。同一次运行中的文件应使用相同版本。
 
 ## 读取文件
 
@@ -247,3 +247,38 @@ uv run python chg_adt_idt_name.py --help
 - `chg_adt_idt_name.py`：接收一个或多个 ARXML 文件路径，整理 ADT / IDT 名称前缀。它会先全局删除文件文本中的 `ADT_` 和 `IDT_`，也会影响非名称文本。
 
 运行名称处理脚本前请备份输入文件，并在运行后检查修改结果。
+
+## 通过 MCP 供大模型使用
+
+MCP 服务使用本地 stdio，通过以下配置接入模型客户端。
+
+用户先按 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)准备绑定。安装 MCP 依赖后，通过 `mcp` 子命令启动服务：
+
+```console
+uv sync --locked --extra mcp
+uv run -m k3q_arxml mcp
+```
+
+该命令等待 MCP 客户端通过 stdin/stdout 通信，启动后不显示交互菜单。日志与错误写入 stderr。服务只访问启动目录及其子目录中的普通文件，文件路径会先解析为绝对路径。服务启动后使用固定版本。
+
+对于支持 `command` / `args` / `cwd` / `env` 配置的 MCP 客户端，可以按实际位置填写。当前以源码运行，`--project` 指定 uv 环境所在项目，`PYTHONPATH` 指定源码父目录，`cwd` 指定业务模型目录：
+
+```json
+{
+  "mcpServers": {
+    "arxml": {
+      "command": "uv",
+      "args": [
+        "--project", "D:\\持续迭代项目\\k3q_arxml",
+        "run", "--extra", "mcp", "-m", "k3q_arxml", "mcp"
+      ],
+      "cwd": "D:\\项目模型",
+      "env": {
+        "PYTHONPATH": "D:\\持续迭代项目\\k3q_arxml"
+      }
+    }
+  }
+}
+```
+
+工具说明、编辑流程、校验与恢复见 [MCP.md](MCP.md)。

@@ -18,7 +18,7 @@ class TestArxml:
         try:
             from k3q_arxml import autosar
         except ImportError:
-            pytest.skip('请先运行 uv run python -m k3q_arxml generate 4.2.2')
+            pytest.skip('请先运行 uv run -m k3q_arxml generate 4.2.2')
         if autosar.SCHEMA_VERSION != '4.2.2':
             pytest.skip('ARXML 样例测试需要生成 4.2.2 绑定')
         self.autosar = autosar

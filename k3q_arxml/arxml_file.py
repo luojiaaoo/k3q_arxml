@@ -22,7 +22,7 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != f'{__package__}.autosar':
         raise
-    raise RuntimeError('尚未生成 AUTOSAR 绑定，请先运行 uv run python -m k3q_arxml generate <版本>；使用 versions 命令查看可用版本。') from exc
+    raise RuntimeError('缺少 AUTOSAR 绑定，请恢复项目自带的 k3q_arxml/autosar.py（默认 4.2.2）后重试。') from exc
 
 
 def get_xml_metadata(schema_version: str) -> dict[str, str]:
@@ -235,7 +235,8 @@ class ArxmlFile:
             matches.append(cast(ArxmlNamedNode[T], node))
         return matches
 
-    def save(self) -> None:
+    def render(self) -> str:
+        """序列化当前文件，不写盘；供保存和修改预览共用。"""
         if self.header is None:
             raise ValueError('尚未读取 XML header')
         serializer = XmlSerializer(
@@ -247,6 +248,10 @@ class ArxmlFile:
         if self.format.leading_comments:
             declaration, body = content.split('\n', 1)
             content = f'{declaration}\n{self.format.leading_comments}\n{body}'
+        return content
+
+    def save(self) -> None:
+        content = self.render()
         with open(self.filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         self._dirty = False

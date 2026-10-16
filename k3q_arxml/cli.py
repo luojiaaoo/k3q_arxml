@@ -23,6 +23,21 @@ def versions() -> None:
         click.echo(version)
 
 
+@cli.command('mcp')
+def serve_mcp() -> None:
+    """在当前目录启动 stdio MCP；所有诊断输出到 stderr。"""
+    try:
+        from .mcp.server import create_server
+    except ModuleNotFoundError as exc:
+        if exc.name == 'mcp' or (exc.name and exc.name.startswith('mcp.')):
+            raise click.ClickException('缺少 MCP 可选依赖，请先运行 uv sync --locked --extra mcp。') from exc
+        raise
+    from .log import configure_logging
+
+    configure_logging()
+    create_server(Path.cwd()).run(transport='stdio')
+
+
 @cli.command('generate')
 @click.argument('version', type=click.Choice(tuple(SCHEMAS)))
 def generate(version: str) -> None:

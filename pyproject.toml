@@ -22,6 +22,11 @@ dev = [
 [project.urls]
 Repository = "https://github.com/luojiaaoo/k3q_arxml"
 
+[project.optional-dependencies]
+mcp = [
+    "mcp==2.3.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
