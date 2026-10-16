@@ -1,11 +1,14 @@
 """跨平台、按需生成当前 AUTOSAR 绑定的命令行。"""
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from shutil import copytree, ignore_patterns
 from tempfile import TemporaryDirectory
+from zipfile import BadZipFile, ZipFile
 
 import click
 
@@ -25,7 +28,7 @@ def versions() -> None:
 
 
 @cli.command('mcp')
-@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='启动前自动生成指定 AUTOSAR 绑定，在独立临时目录中运行；不修改已安装的绑定。')
+@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='按需解压预生成的 AUTOSAR 绑定，在独立临时目录中运行；不修改已安装的绑定。')
 def serve_mcp(schema_version: str | None) -> None:
     """在当前目录启动 stdio MCP；所有诊断输出到 stderr。"""
     try:
@@ -40,11 +43,11 @@ def serve_mcp(schema_version: str | None) -> None:
     if schema_version is not None and schema_version != autosar.SCHEMA_VERSION:
         with TemporaryDirectory(prefix='k3q-arxml-mcp-') as directory:
             package = Path(directory) / 'k3q_arxml'
-            copytree(PACKAGE_ROOT, package, ignore=ignore_patterns('__pycache__', '.codegen-*'))
+            copytree(PACKAGE_ROOT, package, ignore=ignore_patterns('__pycache__', '.codegen-*', 'bindings'))
             # 源码仓库将 Skill 放在包外；安装后的 wheel 已将其放入包内。
             if not (package / 'skills').is_dir() and (PACKAGE_ROOT.parent / 'skills').is_dir():
                 copytree(PACKAGE_ROOT.parent / 'skills', package / 'skills')
-            _generate_binding(schema_version, package / 'autosar.py', stderr=True)
+            _unpack_binding(schema_version, package / 'autosar.py')
             env = {**os.environ, 'PYTHONPATH': os.pathsep.join(filter(None, [directory, os.environ.get('PYTHONPATH')]))}
             # -P 避免当前目录的源码遮住临时包；新进程不会复用父进程已导入的旧类型。
             result = subprocess.run([sys.executable, '-P', '-m', 'k3q_arxml', 'mcp'], env=env)
@@ -52,6 +55,24 @@ def serve_mcp(schema_version: str | None) -> None:
 
     configure_logging()
     create_server(Path.cwd()).run(transport='stdio')
+
+
+def _unpack_binding(version: str, target: Path) -> None:
+    archive = PACKAGE_ROOT / 'bindings' / f'autosar_{version.replace(".", "_")}.zip'
+    try:
+        with ZipFile(archive) as bundle:
+            metadata = json.loads(bundle.read('metadata.json'))
+            content = bundle.read('autosar.py')
+        if (
+            metadata['schema_version'] != version
+            or metadata['xsd_sha256'] != hashlib.sha256(SCHEMAS[version].read_bytes()).hexdigest()
+            or metadata['python_sha256'] != hashlib.sha256(content).hexdigest()
+        ):
+            raise ValueError('绑定版本、XSD 或代码哈希不匹配')
+    except (OSError, BadZipFile, KeyError, ValueError, TypeError) as exc:
+        raise click.ClickException(f'无法读取预生成绑定 {archive}：{exc}；请检查发行包是否完整。') from exc
+    # 仅写入固定文件，不使用 extractall，压缩包中的其他路径不会被解压。
+    target.write_bytes(content)
 
 
 @cli.command('generate')

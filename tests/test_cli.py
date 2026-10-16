@@ -61,12 +61,12 @@ class TestGenerate:
         assert not (self.root / 'autosar.py').exists()
 
     @pytest.mark.parametrize('arguments', [[], ['--schema-version', '4.2.2']])
-    def test_mcp_uses_current_binding_without_generation(self, arguments):
+    def test_mcp_uses_current_binding_without_unpacking(self, arguments):
         pytest.importorskip('mcp')
-        with patch('k3q_arxml.mcp.server.create_server') as create, patch('k3q_arxml.cli._generate_binding') as generate:
+        with patch('k3q_arxml.mcp.server.create_server') as create, patch('k3q_arxml.cli._unpack_binding') as unpack:
             result = self.runner.invoke(cli, ['mcp', *arguments])
         assert result.exit_code == 0, result.output
-        generate.assert_not_called()
+        unpack.assert_not_called()
         create.return_value.run.assert_called_once_with(transport='stdio')
 
     def test_mcp_selected_version_runs_in_fresh_process_without_replacing_source(self):
@@ -75,8 +75,8 @@ class TestGenerate:
         original.write_text('# original binding\n', encoding='utf-8')
         packages = []
 
-        def generate(version, target, *, stderr):
-            assert version == '00048' and stderr
+        def unpack(version, target):
+            assert version == '00048'
             assert target != original
             target.write_text("SCHEMA_VERSION = '00048'\n", encoding='utf-8')
             packages.append(target.parent)
@@ -87,24 +87,24 @@ class TestGenerate:
             assert (packages[0] / 'autosar.py').read_text(encoding='utf-8') == "SCHEMA_VERSION = '00048'\n"
             return subprocess.CompletedProcess(arguments, 7)
 
-        with patch('k3q_arxml.cli._generate_binding', side_effect=generate), patch('k3q_arxml.cli.subprocess.run', side_effect=run):
+        with patch('k3q_arxml.cli._unpack_binding', side_effect=unpack), patch('k3q_arxml.cli.subprocess.run', side_effect=run):
             result = self.runner.invoke(cli, ['mcp', '--schema-version', '00048'])
         assert result.exit_code == 7
         assert original.read_text(encoding='utf-8') == '# original binding\n'
         assert packages and not packages[0].exists()
 
-    def test_mcp_generation_failure_does_not_start_or_replace_binding(self):
+    def test_mcp_unpack_failure_does_not_start_or_replace_binding(self):
         pytest.importorskip('mcp')
         original = self.root / 'autosar.py'
         original.write_text('# original binding\n', encoding='utf-8')
-        with patch('k3q_arxml.cli._generate_binding', side_effect=click.ClickException('generation failed')), patch('k3q_arxml.cli.subprocess.run') as run:
+        with patch('k3q_arxml.cli._unpack_binding', side_effect=click.ClickException('unpack failed')), patch('k3q_arxml.cli.subprocess.run') as run:
             result = self.runner.invoke(cli, ['mcp', '--schema-version', '00048'])
-        assert result.exit_code == 1 and 'generation failed' in result.output
+        assert result.exit_code == 1 and 'unpack failed' in result.output
         run.assert_not_called()
         assert original.read_text(encoding='utf-8') == '# original binding\n'
 
-    def test_mcp_invalid_version_is_rejected_before_generation(self):
-        with patch('k3q_arxml.cli._generate_binding') as generate:
+    def test_mcp_invalid_version_is_rejected_before_unpacking(self):
+        with patch('k3q_arxml.cli._unpack_binding') as unpack:
             result = self.runner.invoke(cli, ['mcp', '--schema-version', 'unknown'])
         assert result.exit_code == 2
-        generate.assert_not_called()
+        unpack.assert_not_called()
