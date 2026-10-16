@@ -9,10 +9,10 @@
 `k3q_arxml` 是基于 Python、xsdata 和 lxml 的 AUTOSAR ARXML 读取、查询、编辑和回写库，支持多文件对象索引、反向引用查询及 ADT / IDT 名称修改。
 
 - 使用 uv 管理项目；`.python-version` 指定开发使用 Python 3.11，最低运行版本为 3.11。
-- `pyproject.toml` 声明运行及开发依赖，`uv.lock` 锁定完整依赖树。
-- xsdata 及 CLI 使用 26.2，Click 使用 8.2.1，Ruff 使用兼容生成配置的 0.13.3，lxml 使用 5.4.0。
-- 日志使用 Loguru 0.7.3，配置统一放在 `k3q_arxml/log.py`；其他模块只导入 logger，入口脚本通过 `configure_logging()` 设置级别。
-- 暂不添加构建后端或打包配置。从仓库根目录运行命令。
+- `pyproject.toml` 使用最低版本及兼容上界声明运行、可选及开发依赖，不用 `==` 固定单一版本；`uv.lock` 锁定完整依赖树及实际安装版本。
+- xsdata 及 CLI 支持 `>=26.2,<27`，Click 支持 `>=8.2.1,<9`，lxml 支持 `>=5.4.0,<6`；Ruff 限定在 `>=0.13.3,<0.14`，避免生成配置受不兼容变更影响。
+- 日志使用 Loguru `>=0.7.3,<0.8`，配置统一放在 `k3q_arxml/log.py`；其他模块只导入 logger，入口脚本通过 `configure_logging()` 设置级别。
+- 使用 Hatchling 构建 wheel 和 sdist；`tool.uv.package = false` 保持仓库通过源码运行，避免中文路径下可编辑安装的编码问题。打包与发布流程见 `DEVELOPMENT.md`。从仓库根目录运行命令。
 - 保留所有 XSD，按需生成一个当前版本的真实 `autosar.py`，不预生成全版本绑定，不使用懒加载代理或全局版本切换函数。
 
 ## 目录与职责
@@ -50,7 +50,7 @@ uv run -m k3q_arxml generate 4.2.2
 ```
 
 - uv 自动准备 Python 3.11、创建 `.venv` 并安装依赖；后续统一使用 `uv run`，无需激活环境。
-- `uv sync --locked --no-dev` 也安装生成 CLI；Ruff 是 xsdata CLI 的间接运行依赖，开发组固定其兼容版本。
+- `uv sync --locked --no-dev` 也安装生成 CLI；Ruff 是 xsdata CLI 的间接运行依赖，开发组限定其兼容范围，实际版本由锁文件确定。
 - 使用 `uv add` / `uv remove` 管理依赖，开发工具添加 `--dev`；将 `pyproject.toml` 与 `uv.lock` 一起提交。
 - 不手动维护间接依赖列表，不为普通功能修改升级无关依赖。
 
