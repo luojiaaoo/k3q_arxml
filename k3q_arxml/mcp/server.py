@@ -48,8 +48,9 @@ def create_server(workspace: Path) -> MCPServer:
         'k3q_arxml',
         instructions='处理启动目录内的 ARXML：先 open_project 加载文件集合；查询目标与引用；编辑使用最新 revision；预览修改后显式调用 save_changes。引用检查仅覆盖已加载文件。',
     )
-    readonly = {'project_info', 'find_nodes', 'get_node', 'find_references', 'describe_type', 'validate_project', 'preview_changes'}
+    readonly = {'get_skill_path', 'project_info', 'find_nodes', 'get_node', 'find_references', 'describe_type', 'validate_project', 'preview_changes'}
     for name in (
+        'get_skill_path',
         'open_project',
         'project_info',
         'find_nodes',

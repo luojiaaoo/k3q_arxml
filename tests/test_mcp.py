@@ -607,8 +607,11 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
             async with ClientSession(read, write) as client:
                 await client.initialize()
                 listed = await client.list_tools()
-                assert len(listed.tools) == 12
+                assert len(listed.tools) == 13
                 assert all(tool.input_schema and tool.output_schema for tool in listed.tools)
+                skill = await client.call_tool('get_skill_path', {})
+                assert not skill.is_error, skill.content
+                assert skill.structured_content == {'result': str(root / 'skills/arxml-mcp')}
                 outside = await client.call_tool('open_project', {'filepaths': [str(root / 'test/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})

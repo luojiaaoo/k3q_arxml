@@ -313,11 +313,13 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
 
 服务由客户端启动，无需再手动运行第二个 stdio 服务。服务以客户端启动进程时的工作目录作为文件范围；若需指定业务模型目录，可使用客户端的 `cwd` 设置。
 
-uv 自动发现启动目录或上级目录中的项目，`--with` 的额外依赖由 uv 准备。启动时使用当前目录的环境，不指定其他项目路径。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)。
+uv 自动发现启动目录或上级目录中的项目，`--with` 指定的包及其依赖由 uv 在临时环境中提供，环境由 uv 缓存管理并可复用。业务模型目录通过客户端的 `cwd` 指定，包的安装位置以服务返回的实际路径为准。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)。
 
 ### 安装随包提供的 Skill
 
-从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。安装 Python 包后，用安装该包的 Python 查看目录位置：
+从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。
+
+当前没有 `arxml-mcp` Skill 时，可直接调用 MCP 工具 `get_skill_path()` 获取内置目录，由智能体自行读取 `SKILL.md` 和所需参考文件；工具不解析内容，也不要求先打开工程。复制安装 Skill 是可选方式。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
 
 ```console
 python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"

@@ -19,7 +19,7 @@ from xsdata.formats.dataclass.context import XmlContext
 from .. import autosar
 from ..arxml_file import ArxmlFile, ref2str, str2ref
 from ..k3q_arxml import IOArxml
-from ..schemas import SCHEMAS, ArxmlHeader, ArxmlNamedNode
+from ..schemas import PACKAGE_ROOT, SCHEMAS, ArxmlHeader, ArxmlNamedNode
 from .persistence import check_recovery, checked_path, digest, save_files
 from .schemas import (
     McpCloseResult,
@@ -100,6 +100,15 @@ class ArxmlMcpService:
         if schema_path is None:
             fail('SCHEMA_NOT_FOUND', '找不到当前绑定对应的本地 XSD。', '请用户检查当前运行环境中的绑定与 XSD 文件是否完整。')
         self.schema = etree.XMLSchema(etree.parse(str(schema_path), etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
+
+    def get_skill_path(self) -> str:
+        """如果当前没有 arxml-mcp Skill，可通过此工具获取内置 Skill 目录，再自行读取其中的 SKILL.md 和所需 references；无需 project_id。"""
+        root = PACKAGE_ROOT / 'skills' / 'arxml-mcp'
+        if not root.is_dir():
+            root = PACKAGE_ROOT.parent / 'skills' / 'arxml-mcp'
+        if not (root / 'SKILL.md').is_file():
+            fail('SKILL_NOT_FOUND', '找不到内置 arxml-mcp Skill。', '检查安装包或源码仓库附带的 skills/arxml-mcp 目录是否完整。')
+        return str(root)
 
     def _project(self, project_id: str) -> McpProjectState:
         if project_id not in self.projects:
