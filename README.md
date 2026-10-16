@@ -61,6 +61,8 @@ uv run -m k3q_arxml generate 4.2.2
 
 项目自带 4.2.2 绑定。更换版本时，停止现有服务，执行 `uv run -m k3q_arxml generate <版本>`，再重新启动 Python 脚本或交互环境。同一次运行中的文件应使用相同版本。
 
+仅启动 MCP 时，从 `2.1.1` 起可直接指定 `mcp --schema-version <版本>`，CLI 会在服务启动前准备独立绑定，无需先手动运行 `generate`；用法见下方 MCP 配置。普通 Python 脚本仍使用自身环境中的绑定。
+
 ## 读取文件
 
 将下面的代码保存为项目目录下的 `example.py`，运行 `uv run python example.py`。示例使用仓库中的 `test/ThrottlePositionControlComposition.arxml`；从 PyPI 安装后，需另行下载该样例或将路径改为自己的 ARXML 文件：
@@ -284,12 +286,16 @@ uv run python chg_adt_idt_name.py --help
 MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 准备 MCP 依赖。下面使用清华大学 PyPI 镜像加速包下载：
 
 ```console
-uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]" -m k3q_arxml mcp
+uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]==2.1.1" -m k3q_arxml mcp --schema-version 00044
 ```
 
 `--default-index` 指定默认包索引，对 `--with` 安装的包及其依赖生效；删除该参数及其 URL 即使用默认 PyPI 源。参数说明见 [uv 官方文档](https://docs.astral.sh/uv/reference/cli/#uv-run--default-index)，镜像地址见 [清华镜像使用帮助](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)。
 
 首次启动需要下载依赖，后续启动会复用 uv 缓存中的包和环境，依赖变化或缓存清理后可能需要重新下载。该镜像只用于 Python 包；若本机没有 Python 3.11，uv 自动下载 Python 解释器时不使用此镜像，也可以提前安装 Python 3.11。
+
+`--schema-version 00044` 是传给本库 MCP 命令的 AUTOSAR 版本参数；`--with ...==2.1.1` 控制发行包版本，`--python 3.11` 控制 Python 版本。安装步骤仍由 uv 完成，绑定生成在 MCP 启动前执行，不属于 pip/uv 的安装钩子。
+
+指定版本与已安装绑定不同时，CLI 每次启动都会复制包到独立临时目录、生成该版本的真实 `autosar.py`，再以新 Python 进程启动服务；退出后清理临时目录。生成期间会输出 stderr 日志，启动可能需要较长时间，可按客户端配置调整启动超时。该过程不覆盖源码或 uv 缓存环境中的绑定，多个不同版本的服务可分别运行。不传该参数或已是对应版本时直接使用当前绑定。
 
 该命令等待 MCP 客户端通过 stdin/stdout 通信，启动后不显示交互菜单。日志与错误写入 stderr。服务只访问启动目录及其子目录中的普通文件，文件路径会先解析为绝对路径。服务启动后使用固定版本。
 
@@ -303,8 +309,9 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
       "args": [
         "run", "--python", "3.11",
         "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
-        "--with", "k3q-arxml[mcp]",
-        "-m", "k3q_arxml", "mcp"
+        "--with", "k3q-arxml[mcp]==2.1.1",
+        "-m", "k3q_arxml", "mcp",
+        "--schema-version", "00044"
       ]
     }
   }
@@ -319,7 +326,7 @@ uv 自动发现启动目录或上级目录中的项目，`--with` 指定的包�
 
 从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。
 
-当前没有 `arxml-mcp` Skill 时，可直接调用 MCP 工具 `get_skill_path()` 获取内置目录，由智能体自行读取 `SKILL.md` 和所需参考文件；工具不解析内容，也不要求先打开工程。复制安装 Skill 是可选方式。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
+从 `2.1.1` 起，当前没有 `arxml-mcp` Skill 时，可直接调用 MCP 工具 `get_skill_path()` 获取内置目录，由智能体自行读取 `SKILL.md` 和所需参考文件；工具不解析内容，也不要求先打开工程。复制安装 Skill 是可选方式。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
 
 ```console
 python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"

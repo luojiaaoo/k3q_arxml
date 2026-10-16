@@ -587,7 +587,8 @@ def test_module_cli_generates_with_bundled_binding_and_mcp_requires_binding(tmp_
     assert result.returncode != 0 and '恢复项目自带' in result.stderr and not result.stdout
 
 
-def test_real_stdio_tools_errors_edit_preview_and_save(project):
+@pytest.mark.parametrize('schema_version', [None, '00044'])
+def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
     pytest.importorskip('mcp', reason='真实 stdio 测试需要 uv run --extra mcp pytest')
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
@@ -595,9 +596,13 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
     service, _, paths = project
     paths[0].write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd'), encoding='utf-8')
     root = Path(__file__).resolve().parents[1]
+    original_binding = (root / 'k3q_arxml/autosar.py').read_bytes()
+    arguments = ['--project', str(root), 'run', '--extra', 'mcp', '-m', 'k3q_arxml', 'mcp']
+    if schema_version:
+        arguments.extend(['--schema-version', schema_version])
     parameters = StdioServerParameters(
         command='uv',
-        args=['--project', str(root), 'run', '--extra', 'mcp', '-m', 'k3q_arxml', 'mcp'],
+        args=arguments,
         cwd=service.workspace,
         env={'PYTHONPATH': str(root), 'PYTHONIOENCODING': 'utf-8'},
     )
@@ -611,11 +616,17 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
                 assert all(tool.input_schema and tool.output_schema for tool in listed.tools)
                 skill = await client.call_tool('get_skill_path', {})
                 assert not skill.is_error, skill.content
-                assert skill.structured_content == {'result': str(root / 'skills/arxml-mcp')}
+                skill_path = Path(skill.structured_content['result'])
+                assert (skill_path / 'SKILL.md').is_file()
+                if schema_version:
+                    assert skill_path != root / 'skills/arxml-mcp'
+                else:
+                    assert skill_path == root / 'skills/arxml-mcp'
                 outside = await client.call_tool('open_project', {'filepaths': [str(root / 'test/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
                 assert not opened.is_error, opened.content
+                assert opened.structured_content['schema_version'] == (schema_version or autosar.SCHEMA_VERSION)
                 mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
                 assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
                 project_id = opened.structured_content['project_id']
@@ -647,4 +658,5 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
                 closed = await client.call_tool('close_project', {'project_id': project_id})
                 assert not closed.is_error
 
-    asyncio.run(asyncio.wait_for(run(), timeout=60))
+    asyncio.run(asyncio.wait_for(run(), timeout=180))
+    assert (root / 'k3q_arxml/autosar.py').read_bytes() == original_binding

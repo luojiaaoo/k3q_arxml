@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from shutil import copytree, ignore_patterns
 from tempfile import TemporaryDirectory
 
 import click
@@ -24,7 +25,8 @@ def versions() -> None:
 
 
 @cli.command('mcp')
-def serve_mcp() -> None:
+@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='启动前自动生成指定 AUTOSAR 绑定，在独立临时目录中运行；不修改已安装的绑定。')
+def serve_mcp(schema_version: str | None) -> None:
     """在当前目录启动 stdio MCP；所有诊断输出到 stderr。"""
     try:
         from .mcp.server import create_server
@@ -32,7 +34,21 @@ def serve_mcp() -> None:
         if exc.name == 'mcp' or (exc.name and exc.name.startswith('mcp.')):
             raise click.ClickException('缺少 MCP 可选依赖，请先运行 uv sync --locked --extra mcp。') from exc
         raise
+    from . import autosar
     from .log import configure_logging
+
+    if schema_version is not None and schema_version != autosar.SCHEMA_VERSION:
+        with TemporaryDirectory(prefix='k3q-arxml-mcp-') as directory:
+            package = Path(directory) / 'k3q_arxml'
+            copytree(PACKAGE_ROOT, package, ignore=ignore_patterns('__pycache__', '.codegen-*'))
+            # 源码仓库将 Skill 放在包外；安装后的 wheel 已将其放入包内。
+            if not (package / 'skills').is_dir() and (PACKAGE_ROOT.parent / 'skills').is_dir():
+                copytree(PACKAGE_ROOT.parent / 'skills', package / 'skills')
+            _generate_binding(schema_version, package / 'autosar.py', stderr=True)
+            env = {**os.environ, 'PYTHONPATH': os.pathsep.join(filter(None, [directory, os.environ.get('PYTHONPATH')]))}
+            # -P 避免当前目录的源码遮住临时包；新进程不会复用父进程已导入的旧类型。
+            result = subprocess.run([sys.executable, '-P', '-m', 'k3q_arxml', 'mcp'], env=env)
+        raise SystemExit(result.returncode)
 
     configure_logging()
     create_server(Path.cwd()).run(transport='stdio')
@@ -42,18 +58,21 @@ def serve_mcp() -> None:
 @click.argument('version', type=click.Choice(tuple(SCHEMAS)))
 def generate(version: str) -> None:
     """生成 VERSION 为 k3q_arxml.autosar，替换此前生成的版本。"""
+    _generate_binding(version, PACKAGE_ROOT / 'autosar.py')
+
+
+def _generate_binding(version: str, target: Path, *, stderr: bool = False) -> None:
     schema = SCHEMAS[version]
     if not schema.is_file():
         raise click.ClickException(f'找不到 schema：{schema}')
 
     # xsdata 会启动 ruff；显式加入当前解释器的脚本目录，无需激活虚拟环境。
     env = {**os.environ, 'PATH': str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')}
-    target = PACKAGE_ROOT / 'autosar.py'
-    click.echo(f'正在生成 AUTOSAR {version} ...')
+    click.echo(f'正在生成 AUTOSAR {version} ...', err=stderr)
     try:
         # 在同一文件系统的临时目录生成，成功后原子替换当前绑定。
         # xsdata 生成的临时 __init__.py 不会覆盖本库的公共入口。
-        with TemporaryDirectory(prefix='.codegen-', dir=PACKAGE_ROOT) as directory:
+        with TemporaryDirectory(prefix='.codegen-', dir=target.parent) as directory:
             subprocess.run(
                 [
                     sys.executable,
@@ -73,6 +92,7 @@ def generate(version: str) -> None:
                 cwd=directory,
                 env=env,
                 check=True,
+                stdout=sys.stderr if stderr else None,
             )
             generated = Path(directory) / 'autosar.py'
             if not generated.is_file():
@@ -84,4 +104,4 @@ def generate(version: str) -> None:
         raise click.ClickException(f'xsdata 生成失败（退出码 {exc.returncode}），当前绑定未修改。') from exc
     except OSError as exc:
         raise click.ClickException(f'无法生成绑定：{exc}') from exc
-    click.echo(f'已生成 {target}\n使用 from k3q_arxml import autosar 导入类型；请在新的 Python 进程中使用。')
+    click.echo(f'已生成 {target}\n使用 from k3q_arxml import autosar 导入类型；请在新的 Python 进程中使用。', err=stderr)
