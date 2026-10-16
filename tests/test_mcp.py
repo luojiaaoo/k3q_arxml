@@ -233,6 +233,100 @@ def test_revision_preview_and_unsaved_close_guards(project):
     assert service.close_project(info.project_id, discard_changes=True).closed
 
 
+@pytest.mark.parametrize('edit', ['attribute', 'rename', 'structure'])
+def test_reverted_edits_clear_dirty_without_writing(project, edit):
+    service, info, paths = project
+    originals = [path.read_bytes() for path in paths]
+    if edit == 'attribute':
+        patch(service, info, '/Types/Speed', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'temporary'}])
+    elif edit == 'rename':
+        service.rename_node(info.project_id, '/Types/Speed', 'Velocity', info.revision)
+    else:
+        patch(service, info, '/Types', [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': datatype('Added', namespace=True)}])
+    dirty_preview = service.preview_changes(info.project_id)
+    if edit == 'attribute':
+        patch(service, info, '/Types/Speed', [{'op': 'remove_attribute', 'xpath': '.', 'attribute': 'UUID'}])
+    elif edit == 'rename':
+        service.rename_node(info.project_id, '/Types/Velocity', 'Speed', dirty_preview.revision)
+        assert service.find_references(info.project_id, '/Types/Speed').total == 2
+    else:
+        patch(service, info, '/Types', [{'op': 'delete', 'xpath': "./ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[ar:SHORT-NAME='Added']"}])
+    assert all(not file.dirty for file in service.project_info(info.project_id).files)
+    with pytest.raises(McpServiceError) as error:
+        service.save_changes(info.project_id, dirty_preview.preview_token)
+    assert error.value.error.code == 'STALE_PREVIEW'
+    preview = service.preview_changes(info.project_id)
+    assert not preview.lines and not preview.affected_files and preview.total_lines == 0
+    saved = service.save_changes(info.project_id, preview.preview_token)
+    assert not saved.files and saved.recovery_manifest is None
+    assert [path.read_bytes() for path in paths] == originals
+    assert not list(service.workspace.glob('.*.bak'))
+    assert service.close_project(info.project_id).closed
+
+
+def test_successful_save_refreshes_revert_baseline(project):
+    service, info, paths = project
+    renamed = service.rename_node(info.project_id, '/Types/Speed', 'Velocity', info.revision)
+    saved = service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    assert saved.revision > renamed.revision
+    originals = [path.read_bytes() for path in paths]
+    changed = service.rename_node(info.project_id, '/Types/Velocity', 'Speed', saved.revision)
+    assert all(file.dirty for file in service.project_info(info.project_id).files)
+    service.rename_node(info.project_id, '/Types/Speed', 'Velocity', changed.revision)
+    assert all(not file.dirty for file in service.project_info(info.project_id).files)
+    assert service.find_references(info.project_id, '/Types/Velocity').total == 2
+    assert not service.preview_changes(info.project_id).lines
+    assert [path.read_bytes() for path in paths] == originals
+    assert service.close_project(info.project_id).closed
+
+
+def test_model_preview_omits_existing_normalization_but_file_preview_preserves_it(project):
+    service, _, _ = project
+    path = service.workspace / 'normalization.arxml'
+    copy2(Path(__file__).resolve().parents[1] / 'test/ThrottlePositionControlComposition.arxml', path)
+    original = path.read_bytes()
+    info = service.open_project([str(path)])
+    node = service.find_nodes(info.project_id, xml_tag='SW-BASE-TYPE', limit=1).items[0]
+    patch(service, info, node.ref, [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'new-uuid'}])
+    port = service.find_nodes(info.project_id, xml_tag='R-PORT-PROTOTYPE', limit=1).items[0]
+    patch(service, info, port.ref, [{'op': 'set_text', 'xpath': './/ar:ALIVE-TIMEOUT', 'value': '1.0'}])
+    full = service.preview_changes(info.project_id, limit=200)
+    focused = service.preview_changes(info.project_id, diff_mode='model', limit=200)
+    assert full.diff_mode == 'file' and focused.diff_mode == 'model'
+    assert full.serialization_changed_files == focused.serialization_changed_files == ['f1']
+    assert full.preview_token == focused.preview_token
+    assert any('<ALIVE-TIMEOUT>0</ALIVE-TIMEOUT>' in line.text for line in full.lines)
+    assert not any('<ALIVE-TIMEOUT>0</ALIVE-TIMEOUT>' in line.text for line in focused.lines)
+    assert any('<ALIVE-TIMEOUT>1.0</ALIVE-TIMEOUT>' in line.text and line.text.startswith('+') for line in focused.lines)
+    assert any('new-uuid' in line.text and line.text.startswith('+') for line in focused.lines)
+    assert any('new-uuid' in line.text and line.text.startswith('+') for line in full.lines)
+    page = service.preview_changes(info.project_id, diff_mode='model', limit=1)
+    assert page.next_offset == 1 and page.total_lines == focused.total_lines
+    assert service.preview_changes(info.project_id, offset=1, diff_mode='model').lines == focused.lines[1:]
+    assert path.read_bytes() == original
+    service.save_changes(info.project_id, full.preview_token)
+    patch(service, info, node.ref, [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'second-uuid'}])
+    assert not service.preview_changes(info.project_id).serialization_changed_files
+
+
+def test_attribute_predicate_targets_new_node_and_explains_missing_elements_layer(project):
+    service, info, _ = project
+    fragment = datatype('Added', namespace=True).replace('><SHORT-NAME>', ' UUID="created"><SHORT-NAME>', 1)
+    patch(service, info, '/Types', [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': fragment}])
+    current = service.project_info(info.project_id)
+    renamed = service.rename_node(info.project_id, '/Types/Added', 'Updated', current.revision)
+    assert renamed.new_ref == '/Types/Updated'
+    selector = "./ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[@UUID='created']"
+    assert service.get_node(info.project_id, '/Types', xpath=selector).xml
+    with pytest.raises(McpServiceError) as error:
+        service.get_node(info.project_id, '/Types', xpath=selector.replace('ar:ELEMENTS/', ''))
+    assert error.value.error.code == 'XPATH_MATCH_COUNT'
+    assert '0' in error.value.error.message and 'ELEMENTS' in error.value.error.suggestion
+    patch(service, info, '/Types', [{'op': 'delete', 'xpath': selector}])
+    assert not service.find_nodes(info.project_id, name='Updated').items
+    assert not service.project_info(info.project_id).files[0].dirty
+
+
 def test_external_file_change_blocks_all_writes(project):
     service, info, paths = project
     original = paths[0].read_bytes()
@@ -539,6 +633,12 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project):
                 )
                 assert not patched.is_error, patched.content
                 preview = await client.call_tool('preview_changes', {'project_id': project_id})
+                focused = await client.call_tool('preview_changes', {'project_id': project_id, 'diff_mode': 'model'})
+                assert not focused.is_error and focused.structured_content['diff_mode'] == 'model'
+                assert focused.structured_content['serialization_changed_files'] == ['f1', 'f2']
+                assert focused.structured_content['preview_token'] == preview.structured_content['preview_token']
+                invalid_mode = await client.call_tool('preview_changes', {'project_id': project_id, 'diff_mode': 'unknown'})
+                assert invalid_mode.is_error
                 saved = await client.call_tool('save_changes', {'project_id': project_id, 'preview_token': preview.structured_content['preview_token']})
                 assert not saved.is_error and len(saved.structured_content['files']) == 2
                 closed = await client.call_tool('close_project', {'project_id': project_id})

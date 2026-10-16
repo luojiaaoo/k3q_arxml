@@ -1,6 +1,6 @@
 ---
 name: arxml-mcp
-description: 使用 k3q_arxml MCP 读取、查询、修改、校验和保存 AUTOSAR ARXML 文件，处理节点重命名、跨文件引用同步及局部 XML 编辑。适用于编程智能体操作模型文件；开发本库源码时仍以仓库 AGENTS.md 为准。
+description: 使用 k3q_arxml MCP 读取、查询、修改、校验和保存 AUTOSAR ARXML 文件，处理节点重命名、跨文件引用同步及局部 XML 编辑。适用于编程智能体操作模型文件。
 ---
 
 # ARXML MCP

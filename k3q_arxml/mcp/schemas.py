@@ -20,7 +20,7 @@ class McpPatchOperation(McpModel):
     """XPath 相对于选定节点，ar: 前缀表示当前 AUTOSAR namespace。"""
 
     op: Literal['set_text', 'set_attribute', 'remove_attribute', 'append', 'insert_before', 'insert_after', 'replace', 'delete']
-    xpath: str = Field(min_length=1, max_length=4096)
+    xpath: str = Field(min_length=1, max_length=4096, description="相对于 ref 的元素路径；ar: 表示 AUTOSAR 命名空间。包内类型需经过 ./ar:ELEMENTS，支持 [@UUID='值'] 属性谓词。")
     value: str | None = None
     attribute: str | None = None
     xml: str | None = Field(default=None, max_length=2_000_000)
@@ -141,6 +141,8 @@ class McpPreview(McpProjectResult):
     total_lines: int
     next_offset: int | None
     diagnostics: list[McpDiagnostic]
+    diff_mode: Literal['file', 'model'] = 'file'
+    serialization_changed_files: list[str] = Field(default_factory=list, description='受影响文件中，加载时原文与绑定序列化结果存在差异的文件；model 视图省略了这些差异。')
 
 
 class McpSavedFile(McpModel):
@@ -167,6 +169,7 @@ class McpProjectState:
     io: IOArxml
     paths: dict[str, Path]
     baseline: dict[str, bytes]
+    rendered_baseline: dict[str, str]
     revision: int = 0
     preview_token: str | None = None
     load_diagnostics: list[McpDiagnostic] = field(default_factory=list)

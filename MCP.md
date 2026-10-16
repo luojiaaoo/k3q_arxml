@@ -42,11 +42,17 @@
 
 查询默认返回摘要；`get_node(include_xml=true)` 才返回 XML。查询、引用和差异默认每页 50 项，最多 200 项；XML 默认每段 16,000 字符，通过 `xml_offset` / `xml_limit` 继续读取。差异中的超长行拆成最多 2,000 字符的片段，`continuation=true` 表示上一行的延续。两种分页都在 `next_offset=null` 时结束。
 
+`preview_changes` 默认使用 `diff_mode="file"`，展示磁盘原文到待保存文件的完整差异，其中可能包含 `0` 到 `0.0` 等序列化规范化变化。可用 `diff_mode="model"` 聚焦本次对象修改：此视图对比加载时和当前对象经同一绑定序列化后的 XML。返回的 `serialization_changed_files` 列出受影响文件中原文与加载时序列化结果存在差异的文件；这些差异不会出现在 model 视图中，保存前仍需阅读 file 视图。分页时保持 `diff_mode` 不变，两种视图共用当前 revision 的预览凭据。
+
+文件恢复到加载时或最近保存后的对象内容时，`dirty` 自动清除，预览不再列出该文件，保存也不写回该文件。成功恢复原值仍会增加 `revision` 并使旧预览凭据失效；其他文件尚有修改时仍需处理。
+
 `describe_type` 也支持 SHORT-NAME、TYPE-TREF 等嵌套标签。同名标签可能对应不同类型，返回的 `alternative_types` 列出候选；可传入 `python_type` 精确选择，例如 `describe_type(xml_tag="TYPE-TREF", python_type="VariableDataPrototype.TypeTref")`。父标签描述中的 `type_names` 可用于确定选择。
 
 ## 局部 XML 修改
 
 `patch_xml` 的 `operations` 按顺序在同一份候选树上执行，整批成功才发布到会话。XPath 相对于指定节点，`ar:` 对应 `http://autosar.org/schema/r4.0`。每项操作必须匹配一个元素；不支持绝对路径、父轴、XPath 函数或变量。
+
+支持属性谓词，例如以包含该类型的包为 `ref` 时，用 `./ar:ELEMENTS/ar:SW-BASE-TYPE[@UUID='test-create-001']` 选择类型。不能漏掉 XML 中间的 ELEMENTS 层；匹配失败时错误会给出实际匹配数量，先读取 XML 核对结构，再调整选择器。重命名的 `ref` 使用当前已存在的旧路径，`new_name` 只填新名称。
 
 下面的请求修改 `/Types/Velocity` 的 UUID 和 CATEGORY 文本：
 

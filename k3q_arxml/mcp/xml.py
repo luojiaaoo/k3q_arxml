@@ -118,7 +118,12 @@ def select_element(root: etree._Element, xpath: str) -> etree._Element:
     except etree.XPathError as exc:
         fail('INVALID_XPATH', str(exc), '为 AUTOSAR 标签使用 ar: 前缀，并检查 XPath 语法。')
     if not isinstance(matches, list) or len(matches) != 1 or not isinstance(matches[0], etree._Element) or not isinstance(matches[0].tag, str):
-        fail('XPATH_MATCH_COUNT', 'XPath 必须且只能匹配一个 XML 元素。', '增加标签、SHORT-NAME 或位置谓词以唯一定位元素。')
+        count = len(matches) if isinstance(matches, list) else 0
+        fail(
+            'XPATH_MATCH_COUNT',
+            f'XPath {xpath} 匹配到 {count} 项，必须且只能匹配一个 XML 元素。',
+            "先用 get_node(include_xml=true) 检查结构和 ar: 命名空间；包内类型通常位于 ./ar:ELEMENTS 下，支持 [@UUID='值'] 属性谓词。多项匹配时用 SHORT-NAME 或位置谓词唯一定位。",
+        )
     selected = matches[0]
     if selected is not root and root not in selected.iterancestors():
         fail('INVALID_XPATH', '选择结果位于目标子树以外。', '使用相对于当前节点的 XPath。')

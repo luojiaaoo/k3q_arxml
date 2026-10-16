@@ -9,7 +9,7 @@ from dataclasses import fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from threading import RLock
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from lxml import etree
@@ -200,7 +200,8 @@ class ArxmlMcpService:
             )
         changed = [file_id for file_id, file in candidates.items() if file.root != project.io.files[project.paths[file_id]].root]
         for file_id in changed:
-            candidates[file_id]._dirty = True
+            # 原文可能含有 0 / 0.0 等词法差异，使用同一绑定的序列化结果判断是否恢复原值。
+            candidates[file_id]._dirty = candidates[file_id].render() != project.rendered_baseline[file_id]
             project.io.files[project.paths[file_id]] = candidates[file_id]
         if changed:
             project.revision += 1
@@ -208,12 +209,16 @@ class ArxmlMcpService:
         return changed
 
     def open_project(
-        self, filepaths: Annotated[list[str], Field(min_length=1, max_length=1000, description='需要一起查询及同步引用的文件；相对路径以 workspace 为基准。')]
+        self,
+        filepaths: Annotated[
+            list[str], Field(min_length=1, max_length=1000, description='需要一起查询及同步引用的文件路径数组，例如 ["SWC.arxml"]；相对路径以 workspace 为基准。')
+        ],
     ) -> McpProjectInfo:
         """加载明确指定的 ARXML 文件集合，不写盘；版本不匹配仅告警，继续尝试使用当前绑定解析。"""
         check_recovery(self.workspace)
         paths = {}
         baseline = {}
+        rendered_baseline = {}
         io = IOArxml([])
         seen_refs = set()
         load_diagnostics = []
@@ -252,7 +257,8 @@ class ArxmlMcpService:
             io.files[path] = file
             paths[file_id] = path
             baseline[file_id] = content
-        project = McpProjectState(uuid4().hex, io, paths, baseline, load_diagnostics=load_diagnostics)
+            rendered_baseline[file_id] = file.render()
+        project = McpProjectState(uuid4().hex, io, paths, baseline, rendered_baseline, load_diagnostics=load_diagnostics)
         project.load_diagnostics.extend(item for item in self._diagnostics(self._files(project)) if item.code != 'XSD_ERROR')
         self.projects[project.project_id] = project
         return self.project_info(project.project_id)
@@ -271,7 +277,7 @@ class ArxmlMcpService:
     def find_nodes(
         self, project_id: str, xml_tag: str | None = None, name: str | None = None, ref_prefix: str = '/', file_id: str | None = None, offset: Offset = 0, limit: Limit = 50
     ) -> McpNodePage:
-        """按 XML 标签、名称子串和路径前缀查找具名节点，默认仅返回摘要。"""
+        """按 XML 标签精确匹配、名称子串和路径前缀查找具名节点；不确定标签时先省略 xml_tag 查询，不能用 SW-C 等片段匹配。"""
         project = self._project(project_id)
         prefix = _path(ref_prefix, root=True)
         if file_id and file_id not in project.paths:
@@ -399,7 +405,7 @@ class ArxmlMcpService:
         return McpTypeInfo(xml_tag=xml_tag, python_type=clazz.__qualname__, fields=items, alternative_types=[kind.__qualname__ for kind in classes])
 
     def rename_node(self, project_id: str, ref: str, new_name: str, revision: Revision, file_id: str | None = None) -> McpEditResult:
-        """重命名具名节点并同步已加载文件中指向它及后代的引用；成功后使用新 revision 和路径查询。"""
+        """ref 必须为当前已存在的旧路径，new_name 仅传新 SHORT-NAME；同步已加载文件中指向它及后代的引用，成功后使用新 revision 和路径查询。"""
         project = self._project(project_id)
         self._revision(project, revision)
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', new_name):
@@ -478,17 +484,31 @@ class ArxmlMcpService:
         diagnostics = self._diagnostics(self._files(project), project.baseline)
         return McpValidationResult(project_id=project_id, revision=project.revision, valid=not any(item.severity == 'error' for item in diagnostics), diagnostics=diagnostics)
 
-    def preview_changes(self, project_id: str, offset: Offset = 0, limit: Limit = 50) -> McpPreview:
-        """分页查看全部未保存文件的 unified diff，并获取绑定当前 revision 的保存凭据；分页间凭据保持不变。"""
+    def preview_changes(
+        self,
+        project_id: str,
+        offset: Offset = 0,
+        limit: Limit = 50,
+        diff_mode: Annotated[
+            Literal['file', 'model'], Field(description='file 展示磁盘原文到待保存文件的完整差异；model 对比同一绑定序列化后的内容，省略已有的格式及数值规范化差异。')
+        ] = 'file',
+    ) -> McpPreview:
+        """分页查看未保存差异；默认 file 包含全部写盘变化，model 聚焦本次对象修改。保存前查看 file 视图；各视图及分页共用当前 revision 的凭据。"""
         project = self._project(project_id)
         lines = []
         affected = []
+        serialization_changed = []
         for key, file in self._files(project).items():
             if not file._dirty:
                 continue
             affected.append(key)
             original = project.baseline[key]
             before = original.decode(read_xml(original).getroottree().docinfo.encoding or 'utf-8').lstrip('\ufeff').splitlines()
+            rendered_before = project.rendered_baseline[key].splitlines()
+            if before != rendered_before:
+                serialization_changed.append(key)
+            if diff_mode == 'model':
+                before = rendered_before
             after = file.render().splitlines()
             for text in difflib.unified_diff(before, after, fromfile=str(file.filepath), tofile=str(file.filepath)):
                 # 单行压缩 XML 也必须有界返回，不能仅按行数限制响应。
@@ -504,6 +524,8 @@ class ArxmlMcpService:
             total_lines=len(lines),
             next_offset=offset + limit if offset + limit < len(lines) else None,
             diagnostics=self.validate_project(project_id).diagnostics,
+            diff_mode=diff_mode,
+            serialization_changed_files=serialization_changed,
         )
 
     def save_changes(self, project_id: str, preview_token: str) -> McpSaveResult:
@@ -524,6 +546,7 @@ class ArxmlMcpService:
         saved = [McpSavedFile(file_id=key, filepath=str(project.paths[key]), backup_path=str(backups[project.paths[key]])) for key in dirty]
         for key, file in dirty.items():
             project.baseline[key] = contents[project.paths[key]]
+            project.rendered_baseline[key] = contents[project.paths[key]].decode('utf-8')
             file._dirty = False
         project.load_diagnostics = [item for item in project.load_diagnostics if item.file_id not in dirty]
         project.preview_token = None

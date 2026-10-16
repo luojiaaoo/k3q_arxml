@@ -18,6 +18,8 @@
 
 列表默认每页 50 项，最多 200 项，用 `offset` 继续。XML 默认每段 16,000 字符，用 `xml_offset` / `xml_limit` 继续。差异每项最多 2,000 字符，长行的后续片段带 `continuation=true`。`next_offset=null` 才表示读取结束。
 
+预览默认 `diff_mode="file"`，包含将写入磁盘的全部差异。差异中混有大量数值或格式规范化变化时，可先用 `diff_mode="model"` 查看本次对象修改，再阅读 file 视图；`serialization_changed_files` 列出存在原文序列化差异的受影响文件。切换视图后重新从 `offset=0` 开始；同一视图分页保持 `diff_mode` 不变，凭据仍绑定当前 revision。恢复加载时或最近保存后的对象内容后，该文件自动清除 dirty，不再出现在预览和保存列表中。
+
 ## 重命名及跨文件同步
 
 任务示例：将 `/Types/Speed` 改名为 `Velocity`，同步接口文件中的引用。
@@ -43,6 +45,8 @@
 ## 局部 XML 编辑
 
 XPath 相对于指定的具名节点，`.` 表示该节点。AUTOSAR 元素使用 `ar:` 前缀，例如 `./ar:CATEGORY`。每项操作必须匹配一个元素；使用位置谓词或 SHORT-NAME 文本谓词消除歧义。当前服务不支持 XPath 函数、轴、变量、绝对路径和返回属性或文本的选择器。
+
+也支持 `[@UUID='值']` 属性谓词。包内类型需经过 ELEMENTS 层，例如 `./ar:ELEMENTS/ar:SW-BASE-TYPE[@UUID='test-create-001']`；不能将漏层导致的零匹配判断为不支持属性谓词。`find_nodes` 的 `xml_tag` 是精确匹配，不确定完整标签时先省略此条件查询。
 
 修改 `/Types/Velocity` 的 UUID，可给 `patch_xml` 传入：
 
