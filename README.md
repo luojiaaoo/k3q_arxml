@@ -286,14 +286,14 @@ uv run python chg_adt_idt_name.py --help
 MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 准备 MCP 依赖。下面使用清华大学 PyPI 镜像加速包下载：
 
 ```console
-uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]==2.1.2" -m k3q_arxml mcp --schema-version 00044
+uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]==2.1.3" -m k3q_arxml mcp --schema-version 00044
 ```
 
 `--default-index` 指定默认包索引，对 `--with` 安装的包及其依赖生效；删除该参数及其 URL 即使用默认 PyPI 源。参数说明见 [uv 官方文档](https://docs.astral.sh/uv/reference/cli/#uv-run--default-index)，镜像地址见 [清华镜像使用帮助](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)。
 
 首次启动需要下载依赖，后续启动会复用 uv 缓存中的包和环境，依赖变化或缓存清理后可能需要重新下载。该镜像只用于 Python 包；若本机没有 Python 3.11，uv 自动下载 Python 解释器时不使用此镜像，也可以提前安装 Python 3.11。
 
-`--schema-version 00044` 是传给本库 MCP 命令的 AUTOSAR 版本参数；`--with ...==2.1.2` 控制发行包版本，`--python 3.11` 控制 Python 版本。安装步骤由 uv 完成，AUTOSAR 绑定在服务启动前准备。
+`--schema-version 00044` 是传给本库 MCP 命令的 AUTOSAR 版本参数；`--with ...==2.1.3` 控制发行包版本，`--python 3.11` 控制 Python 版本。安装步骤由 uv 完成，AUTOSAR 绑定在服务启动前准备。
 
 从 `2.1.2` 起，发行包在 `k3q_arxml/bindings/` 中携带各版本预生成的 ZIP。指定版本与已安装绑定不同时，CLI 复制包到独立临时目录，校验 ZIP 中的版本、XSD 和代码哈希，解压该版本的真实 `autosar.py`，再以新 Python 进程启动服务；退出后清理临时目录。启动时无需运行 xsdata。该过程不覆盖源码或 uv 缓存环境中的绑定，多个不同版本的服务可分别运行。不传该参数或已是对应版本时直接使用当前绑定。
 
@@ -311,7 +311,7 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
       "args": [
         "run", "--python", "3.11",
         "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
-        "--with", "k3q-arxml[mcp]==2.1.2",
+        "--with", "k3q-arxml[mcp]==2.1.3",
         "-m", "k3q_arxml", "mcp",
         "--schema-version", "00044"
       ]

@@ -12,8 +12,8 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 - 重命名、修改属性或引用、增删节点、处理工具错误时，读 [MCP 操作指南](references/mcp-workflows.md)。
 - 变更规则、目标和验证条件已明确，需要批量执行、复用脚本或编写回归验证时，读 [Python 编写与执行指南](references/python-workflows.md)。可以将固化步骤写成 Python 运行，不必逐项调用 MCP；探索阶段仍可用 MCP 确定结构与引用。脚本编写完成后，在当前任务目录用 `uv venv --python=3.11` 创建环境，通过 `uv pip install` 安装依赖，再用 `uv run python script.py` 运行，具体命令见该指南。
 - 涉及 ADT / IDT、数据类型映射、SenderReceiverInterface 或 AUTOSAR 路径含义时，读 [AUTOSAR 基础知识](references/autosar-basics.md)。
-- MCP 未连接或需要启动参数时，先看下面的用户启动前准备；完整客户端配置见 [README 的 MCP 说明](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.2/README.md#通过-mcp-供大模型使用)。此目录可从源码仓库或已安装包的 `k3q_arxml/skills/arxml-mcp` 整体复制到智能体支持的技能目录。
-- 保存恢复步骤见 [MCP 操作指南](references/mcp-workflows.md#错误处理与保存恢复)；完整工具说明及回归命令见 [MCP.md](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.2/MCP.md)。
+- MCP 未连接或需要启动参数时，先看下面的用户启动前准备；完整客户端配置见 [README 的 MCP 说明](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/README.md#通过-mcp-供大模型使用)。此目录可从源码仓库或已安装包的 `k3q_arxml/skills/arxml-mcp` 整体复制到智能体支持的技能目录。
+- 保存恢复步骤见 [MCP 操作指南](references/mcp-workflows.md#错误处理与保存恢复)；完整工具说明及回归命令见 [MCP.md](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/MCP.md)。
 - 不默认加载整个知识目录、全部 XSD 或大型生成绑定。按标签、类型和任务查找相关片段。
 
 ## 用户启动前准备
@@ -21,12 +21,12 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 用户准备 Python 3.11 以上环境，并在客户端的 MCP 启动参数中选择 AUTOSAR 版本。发行包默认携带 4.2.2 绑定，以下以指定 00044 为例：
 
 ```bash
-python -m pip install "k3q-arxml[mcp]==2.1.2"
+python -m pip install "k3q-arxml[mcp]==2.1.3"
 python -m k3q_arxml versions
 python -m k3q_arxml mcp --schema-version 00044
 ```
 
-服务应由 MCP 客户端以 `command="python"`、`args=["-m", "k3q_arxml", "mcp", "--schema-version", "00044"]` 启动；有多个 Python 环境时，将 command 换成已安装包的 Python 可执行文件路径。也可通过 `uv run --python 3.11 --with "k3q-arxml[mcp]==2.1.2" -m k3q_arxml mcp --schema-version 00044` 启动。上面的 mcp 命令只说明服务入口，不需要额外手动启动第二个服务。源码开发环境在仓库根目录使用 `uv sync --locked --extra mcp` 和 `uv run -m k3q_arxml ...`。
+服务应由 MCP 客户端以 `command="python"`、`args=["-m", "k3q_arxml", "mcp", "--schema-version", "00044"]` 启动；有多个 Python 环境时，将 command 换成已安装包的 Python 可执行文件路径。也可通过 `uv run --python 3.11 --with "k3q-arxml[mcp]==2.1.3" -m k3q_arxml mcp --schema-version 00044` 启动。上面的 mcp 命令只说明服务入口，不需要额外手动启动第二个服务。源码开发环境在仓库根目录使用 `uv sync --locked --extra mcp` 和 `uv run -m k3q_arxml ...`。
 
 指定版本与安装包当前绑定不同时，从 2.1.2 起，CLI 校验并解压包内对应版本的预生成 ZIP，再通过新进程启动 MCP；退出后清理临时目录，不覆盖已安装包或源码中的绑定。`2.1.1` 使用运行时生成，需要预留更长的连接时间。不指定版本或当前绑定已匹配时直接启动。
 

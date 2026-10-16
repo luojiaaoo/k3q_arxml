@@ -4,11 +4,11 @@
 
 ## 当前状态
 
-当前发行名为 `k3q-arxml`，Python 导入名为 `k3q_arxml`，包版本由 `pyproject.toml` 的 `[project].version` 决定，当前为 `2.1.2`，对应 Git 标签 `v2.1.2`。Git 标签不会自动改变包版本。
+当前发行名为 `k3q-arxml`，Python 导入名为 `k3q_arxml`，包版本由 `pyproject.toml` 的 `[project].version` 决定，当前为 `2.1.3`，对应 Git 标签 `v2.1.3`。Git 标签不会自动改变包版本。
 
 仓库已配置 Hatchling 构建后端及发行文件范围，可直接按下文构建。`git push` 只更新 Git 仓库，上传 PyPI 还需要构建和发布发行文件。
 
-依赖在 `pyproject.toml` 中声明最低版本和兼容上界，让安装者可以解析兼容版本；仓库开发通过 `uv.lock` 和 `uv sync --locked` 复现已验证的精确版本。下文安装命令中的 `==2.1.2` 用于核验指定发行包。
+依赖在 `pyproject.toml` 中声明最低版本和兼容上界，让安装者可以解析兼容版本；仓库开发通过 `uv.lock` 和 `uv sync --locked` 复现已验证的精确版本。下文安装命令中的 `==2.1.3` 用于核验指定发行包。
 
 ## 打包配置
 
@@ -76,7 +76,7 @@ uv run python build_bindings.py
 
 发布回归还需覆盖 `mcp --schema-version 00044` 的实际解压和 stdio 连接，确认返回的绑定版本正确，原安装包的 `autosar.py` 未被覆盖，stdout 仅承载 MCP 协议。测试会检查 ZIP 覆盖全部可用 schema 及内容哈希，并拒绝缺失、损坏或版本不匹配的压缩包。
 
-检查目标 PyPI 项目的所有权、已有版本及待发布内容。以下以 `2.1.2` 为例；若该版本已使用，应选择新的版本，并同步替换后文目录、文件名和安装命令中的版本号。PyPI 已上传的发行文件不能用不同内容覆盖，即使删除也不能重用该文件名。详见 [PyPI 帮助](https://pypi.org/help/#file-name-reuse)。
+检查目标 PyPI 项目的所有权、已有版本及待发布内容。以下以 `2.1.3` 为例；若该版本已使用，应选择新的版本，并同步替换后文目录、文件名和安装命令中的版本号。PyPI 已上传的发行文件不能用不同内容覆盖，即使删除也不能重用该文件名。详见 [PyPI 帮助](https://pypi.org/help/#file-name-reuse)。
 
 修改 `[project].version` 后更新锁文件，并执行：
 
@@ -98,10 +98,10 @@ git status --short
 使用本次版本的独立输出目录，避免上传旧版本文件：
 
 ```powershell
-uv build --no-sources --out-dir dist/2.1.2
-uvx --from twine twine check --strict dist/2.1.2/*.whl dist/2.1.2/*.tar.gz
-uv run python -m zipfile -l dist/2.1.2/k3q_arxml-2.1.2-py3-none-any.whl
-uv run python -m tarfile -l dist/2.1.2/k3q_arxml-2.1.2.tar.gz
+uv build --no-sources --out-dir dist/2.1.3
+uvx --from twine twine check --strict dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+uv run python -m zipfile -l dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl
+uv run python -m tarfile -l dist/2.1.3/k3q_arxml-2.1.3.tar.gz
 ```
 
 应得到一个 `.whl` 和一个 `.tar.gz`。确认 wheel 中存在 `k3q_arxml/autosar.py`、`k3q_arxml/__main__.py`、`k3q_arxml/mcp/server.py`、`k3q_arxml/bindings/` 下覆盖全部可用版本的 ZIP、所有 XSD，以及完整的 `k3q_arxml/skills/arxml-mcp` 目录；sdist 应包含同一份代码、绑定 ZIP、schema 和 `skills/arxml-mcp`。确认 Skill 的所有本地文档链接在整目录复制后仍可用，且没有临时 ARXML、备份或恢复清单。构建目录和输出文件的行为见 [uv 发布指南](https://docs.astral.sh/uv/guides/package/)。
@@ -109,7 +109,7 @@ uv run python -m tarfile -l dist/2.1.2/k3q_arxml-2.1.2.tar.gz
 在独立临时环境安装 wheel，避免误用仓库源码：
 
 ```powershell
-$wheel = (Resolve-Path 'dist/2.1.2/k3q_arxml-2.1.2-py3-none-any.whl').Path
+$wheel = (Resolve-Path 'dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl').Path
 $checkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-release-' + [guid]::NewGuid())
 uv venv $checkDir --python 3.11
 $checkPython = Join-Path $checkDir 'Scripts/python.exe'
@@ -131,7 +131,7 @@ uv pip install --python $checkPython "$wheel[mcp]"
 $publishSecret = Read-Host 'TestPyPI API token' -AsSecureString
 $env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
 try {
-    uv publish --publish-url https://test.pypi.org/legacy/ dist/2.1.2/*.whl dist/2.1.2/*.tar.gz
+    uv publish --publish-url https://test.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
     if ($LASTEXITCODE -ne 0) { throw 'TestPyPI 上传失败' }
 } finally {
     Remove-Item Env:UV_PUBLISH_TOKEN
@@ -145,7 +145,7 @@ $testDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-testpypi-' + 
 uv venv $testDir --python 3.11
 $testPython = Join-Path $testDir 'Scripts/python.exe'
 uv pip install --python $testPython "$wheel[mcp]"
-uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.1.2'
+uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.1.3'
 & $testPython -I -c "from k3q_arxml import IOArxml, autosar; print(autosar.SCHEMA_VERSION)"
 & $testPython -I -m k3q_arxml versions
 ```
@@ -154,13 +154,13 @@ uv pip install --python $testPython --no-deps --reinstall --index-url https://te
 
 ## 上传正式 PyPI
 
-完成发行文件检查和独立环境安装验证后，先提交发布内容、创建 `v2.1.2` 标签并推送远程仓库，再使用正式 PyPI 创建的 token 上传已经验证过的同一组文件。配置了 TestPyPI 时，可先完成上一节的测试发布。
+完成发行文件检查和独立环境安装验证后，先提交发布内容、创建 `v2.1.3` 标签并推送远程仓库，再使用正式 PyPI 创建的 token 上传已经验证过的同一组文件。配置了 TestPyPI 时，可先完成上一节的测试发布。
 
 ```powershell
 $publishSecret = Read-Host 'PyPI API token' -AsSecureString
 $env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
 try {
-    uv publish --publish-url https://upload.pypi.org/legacy/ dist/2.1.2/*.whl dist/2.1.2/*.tar.gz
+    uv publish --publish-url https://upload.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
     if ($LASTEXITCODE -ne 0) { throw 'PyPI 上传失败' }
 } finally {
     Remove-Item Env:UV_PUBLISH_TOKEN
@@ -173,7 +173,7 @@ try {
 $releaseDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-pypi-' + [guid]::NewGuid())
 uv venv $releaseDir --python 3.11
 $releasePython = Join-Path $releaseDir 'Scripts/python.exe'
-uv pip install --python $releasePython 'k3q-arxml[mcp]==2.1.2'
+uv pip install --python $releasePython 'k3q-arxml[mcp]==2.1.3'
 & $releasePython -I -c "from k3q_arxml import IOArxml, autosar; print(autosar.SCHEMA_VERSION)"
 & $releasePython -I -m k3q_arxml versions
 ```

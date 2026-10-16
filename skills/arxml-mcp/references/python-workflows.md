@@ -1,6 +1,6 @@
 # Python 编写与执行指南
 
-适用于 `k3q-arxml` 2.1.2 的 Python 对象接口及随包提供的 `ArxmlMcpService`。规则明确、目标可枚举、需要重复执行或检查多项结果时，可以将变更与验证写成任务脚本。先用交互 MCP 查明结构和引用，再将确认后的步骤固化；不必为已确定的每个节点反复调用工具。
+适用于 `k3q-arxml` 2.1.3 的 Python 对象接口及随包提供的 `ArxmlMcpService`。规则明确、目标可枚举、需要重复执行或检查多项结果时，可以将变更与验证写成任务脚本。先用交互 MCP 查明结构和引用，再将确认后的步骤固化；不必为已确定的每个节点反复调用工具。
 
 ## 选择接口和运行环境
 
@@ -14,7 +14,7 @@
 
 ```bash
 uv venv --python=3.11                     # 在当前目录创建 Python 3.11 的 .venv
-uv pip install "k3q-arxml[mcp]==2.1.2"      # 安装 ARXML 库及 MCP 依赖
+uv pip install "k3q-arxml[mcp]==2.1.3"      # 安装 ARXML 库及 MCP 依赖
 uv run python script.py                   # 运行编写好的脚本
 ```
 
