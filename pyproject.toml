@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "k3q-arxml"
-version = "1.0.0"
+version = "2.1.0"
 description = "A lightweight Python library for reading and editing AUTOSAR ARXML files"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,9 +49,13 @@ quote-style = "single"
 [tool.hatch.build.targets.wheel]
 packages = ["k3q_arxml"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "k3q_arxml/skills"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "/k3q_arxml",
+    "/skills",
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",

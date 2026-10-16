@@ -313,6 +313,29 @@ uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --
 
 服务由客户端启动，无需再手动运行第二个 stdio 服务。服务以客户端启动进程时的工作目录作为文件范围；若需指定业务模型目录，可使用客户端的 `cwd` 设置。
 
-uv 自动发现启动目录或上级目录中的项目，`--with` 的额外依赖由 uv 准备。启动时使用当前目录的环境，不指定其他项目路径。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)，Skill 需从仓库单独复制到智能体支持的技能目录。
+uv 自动发现启动目录或上级目录中的项目，`--with` 的额外依赖由 uv 准备。启动时使用当前目录的环境，不指定其他项目路径。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)。
+
+### 安装随包提供的 Skill
+
+从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。安装 Python 包后，用安装该包的 Python 查看目录位置：
+
+```console
+python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"
+```
+
+将输出路径中的整个 `arxml-mcp` 文件夹复制到智能体的技能目录，例如 Codex 的 `~/.codex/skills/`。也可以执行以下代码复制到 Codex 默认目录；目标已存在时会报错，先核对是否需要替换：
+
+```python
+from importlib.resources import files
+from pathlib import Path
+from shutil import copytree
+
+source = files('k3q_arxml').joinpath('skills', 'arxml-mcp')
+target = Path.home() / '.codex' / 'skills' / 'arxml-mcp'
+copytree(str(source), target)
+print(target)
+```
+
+源码仓库中的对应目录为 `skills/arxml-mcp`，复制其中的 `SKILL.md` 和全部 `references` 即可。Skill 的安装和 MCP 客户端连接需要分别配置。
 
 工具说明、编辑流程、校验与恢复见 [MCP.md](MCP.md)。

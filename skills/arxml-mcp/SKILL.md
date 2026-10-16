@@ -11,24 +11,25 @@ description: 使用 k3q_arxml MCP 读取、查询、修改、校验和保存 AUT
 
 - 重命名、修改属性或引用、增删节点、处理工具错误时，读 [MCP 操作指南](references/mcp-workflows.md)。
 - 涉及 ADT / IDT、数据类型映射、SenderReceiverInterface 或 AUTOSAR 路径含义时，读 [AUTOSAR 基础知识](references/autosar-basics.md)。
-- MCP 未连接或需要启动参数时，读仓库 [README 的 MCP 说明](../../README.md#通过-mcp-供大模型使用)。此目录可以整体复制到智能体支持的技能目录；复制后仓库 README 需在实际仓库中查找。
-- 需要完整工具说明、保存恢复或回归命令时，读仓库 [MCP.md](../../MCP.md)。
+- MCP 未连接或需要启动参数时，先看下面的用户启动前准备；完整客户端配置见 [README 的 MCP 说明](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.0/README.md#通过-mcp-供大模型使用)。此目录可从源码仓库或已安装包的 `k3q_arxml/skills/arxml-mcp` 整体复制到智能体支持的技能目录。
+- 保存恢复步骤见 [MCP 操作指南](references/mcp-workflows.md#错误处理与保存恢复)；完整工具说明及回归命令见 [MCP.md](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.0/MCP.md)。
 - 不默认加载整个知识目录、全部 XSD 或大型生成绑定。按标签、类型和任务查找相关片段。
 
 ## 用户启动前准备
 
-用户在 MCP 启动前自行通过命令行准备对应版本的绑定。以下命令在工具项目根目录执行，以 4.2.2 为例：
+用户在 MCP 启动前自行准备 Python 3.11 以上环境及对应版本的绑定。发行包默认携带 4.2.2 绑定，使用已安装包的 Python 执行：
 
 ```bash
-uv sync --locked --extra mcp
-uv run -m k3q_arxml versions
-uv run -m k3q_arxml generate 4.2.2
-uv run -m k3q_arxml mcp
+python -m pip install "k3q-arxml[mcp]==2.1.0"
+python -m k3q_arxml versions
+python -m k3q_arxml mcp
 ```
 
-服务启动后版本固定。若用户需要其他版本，应自行停止服务、通过命令行生成所需绑定，再重新启动。AI 的文件操作流程不执行版本生成、切换或服务重启，也不将版本确认作为每次对话的前置提问。
+服务应由 MCP 客户端以 `command="python"`、`args=["-m", "k3q_arxml", "mcp"]` 启动；有多个 Python 环境时，将 command 换成已安装包的 Python 可执行文件路径。上面的 mcp 命令只说明服务入口，不需要额外手动启动第二个服务。源码开发环境在仓库根目录使用 `uv sync --locked --extra mcp` 和 `uv run -m k3q_arxml ...`。
 
-服务以进程启动目录作为文件访问范围，包含其子目录。使用 MCP 客户端时，由客户端的 `cwd` 指定业务模型目录；源码运行所需的 Python 路径与 uv 项目配置见 README。服务应由客户端启动，不需要用户额外手动运行第二个 stdio 服务。
+服务启动后版本固定。若用户需要其他版本，应自行停止服务，执行 `python -m k3q_arxml generate <版本>` 生成所需绑定，再重新启动。AI 的文件操作流程不执行版本生成、切换或服务重启，也不将版本确认作为每次对话的前置提问。
+
+服务以进程启动目录作为文件访问范围，包含其子目录。使用 MCP 客户端时，由客户端的 `cwd` 指定业务模型目录；源码运行所需的 Python 路径与 uv 项目配置见上面链接的 README。
 
 ## 先确定操作上下文
 

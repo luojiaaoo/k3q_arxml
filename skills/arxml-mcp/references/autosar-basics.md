@@ -48,10 +48,10 @@ XSD 可以检查结构、部分值约束与枚举；它不证明当前文件集�
 
 ## 本地依据与后续专题
 
-- [4.2.2 主 XSD](../../../k3q_arxml/schemas/autosar_4_2_2/AUTOSAR_4-2-2.xsd)：按 `name="DATA-TYPE-MAP"`、`name="VARIABLE-DATA-PROTOTYPE"` 等搜索相应类型和关联组。
-- [已提交 ARXML 样例](../../../test/ThrottlePositionControlComposition.arxml)：观察实际层级、类型定义与引用，查询或练习时使用临时副本。
-- [MCP 编辑服务](../../../k3q_arxml/mcp/service.py)：判断工具能力、引用检查及保存边界；工具返回的实际 schema 优先于本文中的示例。
+- 安装包中的 `k3q_arxml/schemas/autosar_4_2_2/AUTOSAR_4-2-2.xsd`：按 `name="DATA-TYPE-MAP"`、`name="VARIABLE-DATA-PROTOTYPE"` 等搜索相应类型和关联组。可用 `python -c "from k3q_arxml.schemas import SCHEMAS; print(SCHEMAS['4.2.2'])"` 查询实际路径。
+- [已提交 ARXML 样例](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.0/test/ThrottlePositionControlComposition.arxml)：观察实际层级、类型定义与引用，查询或练习时下载到临时副本。
+- [MCP 编辑服务](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.0/k3q_arxml/mcp/service.py)：判断工具能力、引用检查及保存边界；工具返回的实际 schema 优先于本文中的示例。
 
-这些本地链接按仓库中的技能位置编写；技能被复制安装后，在目标仓库中按相同路径查找。
+技能复制安装后，无需保留原仓库目录；XSD 随 Python 包安装，样例和源码可按上面的版本链接查看。
 
 后续专题可单独覆盖应用类型与实现类型映射、接口和端口、组件与连接器、数据约束与单位、版本及工具兼容性。只在掌握来源和具体任务后补充规则，并在 SKILL.md 中增加按需读取入口；不要先创建空白专题文件。
