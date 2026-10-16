@@ -1,7 +1,6 @@
-import os
 import runpy
 import subprocess
-from pathlib import Path
+import sys
 from unittest.mock import patch
 
 import click
@@ -69,29 +68,33 @@ class TestGenerate:
         unpack.assert_not_called()
         create.return_value.run.assert_called_once_with(transport='stdio')
 
-    def test_mcp_selected_version_runs_in_fresh_process_without_replacing_source(self):
+    def test_mcp_selected_version_replaces_library_then_runs_in_fresh_process(self):
         pytest.importorskip('mcp')
         original = self.root / 'autosar.py'
         original.write_text('# original binding\n', encoding='utf-8')
-        packages = []
+        targets = []
 
         def unpack(version, target):
             assert version == '00048'
-            assert target != original
+            assert target == original
             target.write_text("SCHEMA_VERSION = '00048'\n", encoding='utf-8')
-            packages.append(target.parent)
+            targets.append(target)
 
-        def run(arguments, *, env):
-            assert arguments[1:] == ['-P', '-m', 'k3q_arxml', 'mcp']
-            assert Path(env['PYTHONPATH'].split(os.pathsep)[0]) == packages[0].parent
-            assert (packages[0] / 'autosar.py').read_text(encoding='utf-8') == "SCHEMA_VERSION = '00048'\n"
+        def run(arguments):
+            assert arguments[1:] == ['-m', 'k3q_arxml', 'mcp']
+            assert original.read_text(encoding='utf-8') == "SCHEMA_VERSION = '00048'\n"
             return subprocess.CompletedProcess(arguments, 7)
 
-        with patch('k3q_arxml.cli._unpack_binding', side_effect=unpack), patch('k3q_arxml.cli.subprocess.run', side_effect=run):
+        # 父进程无需加载 MCP；SDK 和服务适配层由使用所选绑定的子进程导入。
+        with (
+            patch('k3q_arxml.cli._unpack_binding', side_effect=unpack),
+            patch('k3q_arxml.cli.subprocess.run', side_effect=run),
+            patch.dict(sys.modules, {'k3q_arxml.mcp.server': None}),
+        ):
             result = self.runner.invoke(cli, ['mcp', '--schema-version', '00048'])
         assert result.exit_code == 7
-        assert original.read_text(encoding='utf-8') == '# original binding\n'
-        assert packages and not packages[0].exists()
+        assert targets == [original]
+        assert original.read_text(encoding='utf-8') == "SCHEMA_VERSION = '00048'\n"
 
     def test_mcp_unpack_failure_does_not_start_or_replace_binding(self):
         pytest.importorskip('mcp')

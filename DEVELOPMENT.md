@@ -74,7 +74,7 @@ uv run python build_bindings.py
 
 脚本默认并行生成两个版本，不修改默认 `autosar.py`，输出 `k3q_arxml/bindings/autosar_<版本>.zip`。每个 ZIP 仅包含真实的 `autosar.py` 和 `metadata.json`，记录 schema 版本、XSD / 代码 SHA-256 及 xsdata 版本。可用 `--versions 00044 --jobs 1` 只重建指定版本。将这些 ZIP 作为发行资源纳入版本控制，构建 wheel / sdist 时直接打包；用户启动 MCP 时只校验并解压指定版本，无需重新生成。
 
-发布回归还需覆盖 `mcp --schema-version 00044` 的实际解压和 stdio 连接，确认返回的绑定版本正确，原安装包的 `autosar.py` 未被覆盖，stdout 仅承载 MCP 协议。测试会检查 ZIP 覆盖全部可用 schema 及内容哈希，并拒绝缺失、损坏或版本不匹配的压缩包。
+发布回归还需在测试包副本中覆盖 `mcp --schema-version 00044` 的实际解压和 stdio 连接，确认副本的 `autosar.py` 已被替换、返回的绑定版本正确，同版本重新连接不再替换绑定，stdout 仅承载 MCP 协议。不得覆盖仓库或日常使用环境的绑定。测试会检查 ZIP 覆盖全部可用 schema 及内容哈希，并拒绝缺失、损坏或版本不匹配的压缩包；写入或替换失败时原绑定必须保持完整。
 
 检查目标 PyPI 项目的所有权、已有版本及待发布内容。以下以 `2.1.3` 为例；若该版本已使用，应选择新的版本，并同步替换后文目录、文件名和安装命令中的版本号。PyPI 已上传的发行文件不能用不同内容覆盖，即使删除也不能重用该文件名。详见 [PyPI 帮助](https://pypi.org/help/#file-name-reuse)。
 

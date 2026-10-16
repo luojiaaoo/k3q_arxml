@@ -7,6 +7,7 @@ import re
 from collections import Counter
 from dataclasses import fields, is_dataclass
 from enum import Enum
+from functools import cached_property
 from pathlib import Path
 from threading import RLock
 from typing import Annotated, Literal
@@ -96,10 +97,14 @@ class ArxmlMcpService:
         self.lock = RLock()
         self.context = XmlContext()
         self._type_roles: dict[str, list[tuple[type, str]]] | None = None
-        schema_path = SCHEMAS.get(autosar.SCHEMA_VERSION)
-        if schema_path is None:
+        self._schema_path = SCHEMAS.get(autosar.SCHEMA_VERSION)
+        if self._schema_path is None:
             fail('SCHEMA_NOT_FOUND', '找不到当前绑定对应的本地 XSD。', '请用户检查当前运行环境中的绑定与 XSD 文件是否完整。')
-        self.schema = etree.XMLSchema(etree.parse(str(schema_path), etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
+
+    @cached_property
+    def schema(self) -> etree.XMLSchema:
+        """首次加载工程时编译 XSD，后续校验复用；MCP 握手和获取手册无需编译。"""
+        return etree.XMLSchema(etree.parse(str(self._schema_path), etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
 
     def get_skill_path(self) -> str:
         """获取本 MCP 使用手册（arxml-mcp Skill）的目录；无需参数或工程会话。

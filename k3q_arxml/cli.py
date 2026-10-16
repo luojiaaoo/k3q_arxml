@@ -6,8 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from shutil import copytree, ignore_patterns
-from tempfile import TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from zipfile import BadZipFile, ZipFile
 
 import click
@@ -28,30 +27,25 @@ def versions() -> None:
 
 
 @cli.command('mcp')
-@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='按需解压预生成的 AUTOSAR 绑定，在独立临时目录中运行；不修改已安装的绑定。')
+@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='按需用预生成的 AUTOSAR 绑定覆盖当前库的 autosar.py，再以新进程启动。')
 def serve_mcp(schema_version: str | None) -> None:
     """在当前目录启动 stdio MCP；所有诊断输出到 stderr。"""
+    from . import autosar
+    from .log import configure_logging
+
+    if schema_version is not None and schema_version != autosar.SCHEMA_VERSION:
+        _unpack_binding(schema_version, PACKAGE_ROOT / 'autosar.py')
+        # 当前进程已导入旧类型，覆盖后必须由新进程加载；下一次同版本启动无需再次解压。
+        result = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'mcp'])
+        raise SystemExit(result.returncode)
+
+    # 指定其他绑定时由子进程加载 SDK，父进程只负责准备绑定，避免重复导入。
     try:
         from .mcp.server import create_server
     except ModuleNotFoundError as exc:
         if exc.name == 'mcp' or (exc.name and exc.name.startswith('mcp.')):
             raise click.ClickException('缺少 MCP 可选依赖，请先运行 uv sync --locked --extra mcp。') from exc
         raise
-    from . import autosar
-    from .log import configure_logging
-
-    if schema_version is not None and schema_version != autosar.SCHEMA_VERSION:
-        with TemporaryDirectory(prefix='k3q-arxml-mcp-') as directory:
-            package = Path(directory) / 'k3q_arxml'
-            copytree(PACKAGE_ROOT, package, ignore=ignore_patterns('__pycache__', '.codegen-*', 'bindings'))
-            # 源码仓库将 Skill 放在包外；安装后的 wheel 已将其放入包内。
-            if not (package / 'skills').is_dir() and (PACKAGE_ROOT.parent / 'skills').is_dir():
-                copytree(PACKAGE_ROOT.parent / 'skills', package / 'skills')
-            _unpack_binding(schema_version, package / 'autosar.py')
-            env = {**os.environ, 'PYTHONPATH': os.pathsep.join(filter(None, [directory, os.environ.get('PYTHONPATH')]))}
-            # -P 避免当前目录的源码遮住临时包；新进程不会复用父进程已导入的旧类型。
-            result = subprocess.run([sys.executable, '-P', '-m', 'k3q_arxml', 'mcp'], env=env)
-        raise SystemExit(result.returncode)
 
     configure_logging()
     create_server(Path.cwd()).run(transport='stdio')
@@ -71,8 +65,18 @@ def _unpack_binding(version: str, target: Path) -> None:
             raise ValueError('绑定版本、XSD 或代码哈希不匹配')
     except (OSError, BadZipFile, KeyError, ValueError, TypeError) as exc:
         raise click.ClickException(f'无法读取预生成绑定 {archive}：{exc}；请检查发行包是否完整。') from exc
-    # 仅写入固定文件，不使用 extractall，压缩包中的其他路径不会被解压。
-    target.write_bytes(content)
+    # 只写入固定文件；同目录暂存后原子替换，不复制包或直接截断现有绑定。
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=target.parent, prefix='.autosar-', suffix='.tmp', delete=False) as output:
+            temporary = Path(output.name)
+            output.write(content)
+        temporary.replace(target)
+    except OSError as exc:
+        raise click.ClickException(f'无法替换当前绑定 {target}：{exc}；请检查安装目录的写入权限，原绑定未修改。') from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @cli.command('generate')

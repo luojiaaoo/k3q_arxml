@@ -22,7 +22,7 @@ uv run python script.py                   # 运行编写好的脚本
 
 安装依赖与运行脚本使用同一个环境及其中已准备的绑定。脚本不会自动生成或切换绑定，也不会重启正在运行的服务。
 
-`mcp --schema-version` 选择的绑定仅用于该服务的独立临时包，不会改变同一 Python 安装环境里的默认绑定。独立任务脚本需由用户在自己的环境中准备所需绑定，并使用新进程；执行前可输出 `autosar.SCHEMA_VERSION` 核对，不能直接沿用 MCP 的临时版本假设。
+已发布 `2.1.3` 的 `mcp --schema-version` 使用独立临时包，不改变原环境的绑定。当前源码已改为直接原子替换库内的 `autosar.py`，所选版本会保留在该环境中，独立任务脚本的新进程也会使用它。执行前应输出实际环境的 `autosar.SCHEMA_VERSION` 核对；需要多个版本时分别使用独立环境。
 
 `ArxmlMcpService` 位于 `k3q_arxml.mcp.service`，可直接调用，不需要启动 stdio 或额外编写协议客户端。它是当前版本的服务接口；调用签名以实际安装版本为准。Python 直接调用不会经过 MCP SDK 的参数校验，显式传入正确类型：`Path` 工作目录、文件路径字符串列表、`McpPatchOperation` 对象列表和服务实际返回的 revision。
 

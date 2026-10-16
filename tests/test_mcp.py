@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from shutil import copy2, copytree
+from shutil import copy2, copytree, ignore_patterns
 
 import pytest
 from lxml import etree
@@ -29,6 +29,36 @@ def document(package, elements):
 def datatype(name, *, namespace=False):
     declaration = f' xmlns="{NAMESPACE}"' if namespace else ''
     return f'<APPLICATION-PRIMITIVE-DATA-TYPE{declaration}><SHORT-NAME>{name}</SHORT-NAME><CATEGORY>VALUE</CATEGORY></APPLICATION-PRIMITIVE-DATA-TYPE>'
+
+
+def test_startup_defers_xsd_compilation_and_reuses_it_for_validation(tmp_path, monkeypatch):
+    if autosar.SCHEMA_VERSION != '4.2.2':
+        pytest.skip('MCP ARXML 回归需要 4.2.2 绑定')
+    compile_schema = etree.XMLSchema
+    compiled = []
+
+    def compile_once(*args, **kwargs):
+        schema = compile_schema(*args, **kwargs)
+        compiled.append(schema)
+        return schema
+
+    monkeypatch.setattr(etree, 'XMLSchema', compile_once)
+    service = ArxmlMcpService(tmp_path)
+    assert Path(service.get_skill_path()).is_dir()
+    assert not compiled
+
+    filepath = tmp_path / 'types.arxml'
+    filepath.write_text(document('Types', datatype('Speed')), encoding='utf-8')
+    info = service.open_project([filepath.name])
+    assert len(compiled) == 1
+    assert service.validate_project(info.project_id).valid
+    assert len(compiled) == 1
+
+    # 延后编译仍须报告真实的 XSD 错误，而非跳过加载和后续校验。
+    filepath.write_text(document('Types', datatype('Invalid Name')), encoding='utf-8')
+    invalid = service.open_project([filepath.name])
+    assert any(item.code == 'XSD_ERROR' for item in invalid.diagnostics)
+    assert len(compiled) == 1
 
 
 @pytest.fixture
@@ -597,6 +627,10 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
     paths[0].write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd'), encoding='utf-8')
     root = Path(__file__).resolve().parents[1]
     original_binding = (root / 'k3q_arxml/autosar.py').read_bytes()
+    # 切换会直接覆盖库；在测试副本中验证，避免改动仓库和其他测试的绑定。
+    runtime = service.workspace / '服务 环境'
+    copytree(root / 'k3q_arxml', runtime / 'k3q_arxml', ignore=ignore_patterns('__pycache__'))
+    copytree(root / 'skills', runtime / 'skills')
     arguments = ['--project', str(root), 'run', '--extra', 'mcp', '-m', 'k3q_arxml', 'mcp']
     if schema_version:
         arguments.extend(['--schema-version', schema_version])
@@ -604,7 +638,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
         command='uv',
         args=arguments,
         cwd=service.workspace,
-        env={'PYTHONPATH': str(root), 'PYTHONIOENCODING': 'utf-8'},
+        env={'PYTHONPATH': str(runtime), 'PYTHONIOENCODING': 'utf-8'},
     )
 
     async def run():
@@ -618,10 +652,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert not skill.is_error, skill.content
                 skill_path = Path(skill.structured_content['result'])
                 assert (skill_path / 'SKILL.md').is_file()
-                if schema_version:
-                    assert skill_path != root / 'skills/arxml-mcp'
-                else:
-                    assert skill_path == root / 'skills/arxml-mcp'
+                assert skill_path == runtime / 'skills/arxml-mcp'
                 outside = await client.call_tool('open_project', {'filepaths': [str(root / 'test/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
@@ -659,4 +690,21 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert not closed.is_error
 
     asyncio.run(asyncio.wait_for(run(), timeout=180))
+    runtime_binding = runtime / 'k3q_arxml/autosar.py'
+    if schema_version:
+        assert f"SCHEMA_VERSION = '{schema_version}'".encode() in runtime_binding.read_bytes()
+        modified = runtime_binding.stat().st_mtime_ns
+
+        async def reconnect():
+            async with stdio_client(parameters) as (read, write):
+                async with ClientSession(read, write) as client:
+                    await client.initialize()
+                    opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
+                    assert not opened.is_error
+                    assert opened.structured_content['schema_version'] == schema_version
+
+        asyncio.run(asyncio.wait_for(reconnect(), timeout=180))
+        assert runtime_binding.stat().st_mtime_ns == modified
+    else:
+        assert runtime_binding.read_bytes() == original_binding
     assert (root / 'k3q_arxml/autosar.py').read_bytes() == original_binding

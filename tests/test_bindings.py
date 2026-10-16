@@ -77,3 +77,23 @@ def test_invalid_bundle_does_not_replace_target(bundle, tmp_path, fault):
     with pytest.raises(click.ClickException, match='预生成绑定'):
         _unpack_binding('00044', target)
     assert target.read_bytes() == b'# previous binding\n'
+
+
+def test_failed_atomic_replacement_keeps_binding_and_cleans_temporary_file(bundle, tmp_path, monkeypatch):
+    path, metadata, content = bundle
+    with ZipFile(path, 'w') as archive:
+        archive.writestr('metadata.json', json.dumps(metadata))
+        archive.writestr('autosar.py', content)
+    target = tmp_path / 'autosar.py'
+    target.write_bytes(b'# previous binding\n')
+
+    def reject_replace(source, destination):
+        assert destination == target
+        assert source.read_bytes() == content
+        raise PermissionError('replacement denied')
+
+    monkeypatch.setattr(type(target), 'replace', reject_replace)
+    with pytest.raises(click.ClickException, match='原绑定未修改'):
+        _unpack_binding('00044', target)
+    assert target.read_bytes() == b'# previous binding\n'
+    assert not list(tmp_path.glob('.autosar-*'))
