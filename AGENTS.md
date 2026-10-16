@@ -1,6 +1,15 @@
-# 项目开发指南
+# 项目开发、MCP 操作与发布指南
 
 本文件适用于整个仓库。协作说明、注释和变更总结优先使用中文；代码标识符沿用英文命名。修改前先阅读相关源码，以实际实现为准。
+
+本文件统一维护仓库开发规范、MCP 操作说明和 PyPI 发布流程。用户安装和 Python 使用说明见 [README.md](README.md)。命令在仓库根目录执行；发布示例使用 Windows PowerShell。
+
+- [项目概况](#项目概况)与[目录职责](#目录与职责)
+- [环境与类型生成](#环境与类型生成)
+- [核心行为与修改约束](#核心行为与修改约束)
+- [验证与交付](#验证与交付)
+- [ARXML MCP 使用说明](#arxml-mcp-使用说明)
+- [开发与 PyPI 发布](#开发与-pypi-发布)
 
 ## 项目概况
 
@@ -12,7 +21,7 @@
 - `pyproject.toml` 使用最低版本及兼容上界声明运行、可选及开发依赖，不用 `==` 固定单一版本；`uv.lock` 锁定完整依赖树及实际安装版本。
 - xsdata 及 CLI 支持 `>=26.2,<27`，Click 支持 `>=8.2.1,<9`，lxml 支持 `>=5.4.0,<6`；Ruff 限定在 `>=0.13.3,<0.14`，避免生成配置受不兼容变更影响。
 - 日志使用 Loguru `>=0.7.3,<0.8`，配置统一放在 `k3q_arxml/log.py`；其他模块只导入 logger，入口脚本通过 `configure_logging()` 设置级别。
-- 使用 Hatchling 构建 wheel 和 sdist；`tool.uv.package = false` 保持仓库通过源码运行，避免中文路径下可编辑安装的编码问题。打包与发布流程见 `DEVELOPMENT.md`。从仓库根目录运行命令。
+- 使用 Hatchling 构建 wheel 和 sdist；`tool.uv.package = false` 保持仓库通过源码运行，避免中文路径下可编辑安装的编码问题。打包与发布流程见[开发与 PyPI 发布](#开发与-pypi-发布)。
 - 保留所有 XSD；发布前将各版本真实绑定预生成到 `k3q_arxml/bindings/` 的独立 ZIP，MCP 启动时仅解压所选版本。不使用懒加载代理或全局版本切换函数。
 
 ## 目录与职责
@@ -36,7 +45,7 @@
 | `tests/` | pytest 回归测试，使用 fixture、参数化用例和临时文件 |
 | `docs/` | DaVinci 与 AUTOSAR 兼容性参考 PDF |
 | `README.md` | 环境、生成命令、Python 使用说明及 MCP 配置方法 |
-| `MCP.md` | MCP 工具、编辑流程、校验、备份和恢复说明 |
+| `AGENTS.md` | 仓库开发规范、MCP 工具与编辑流程、校验恢复及打包发布说明 |
 | `pyproject.toml` | 项目元数据、依赖及 Ruff 配置（行宽 180、单引号） |
 | `uv.lock`、`.python-version` | 完整依赖锁文件与开发 Python 版本 |
 
@@ -103,6 +112,12 @@ uv lock --check
 git diff --check
 ```
 
+安装 MCP 可选依赖后执行完整回归（包含真实 stdio 客户端测试）：
+
+```console
+uv run --extra mcp pytest -v
+```
+
 - 样例测试需要 4.2.2 绑定，缺失或版本不符会跳过；交付时区分实际执行与跳过的测试。
 - CLI 测试覆盖真实小型 XSD 生成、版本替换、失败保留旧绑定以及中文和空格路径；不生成所有版本。
 - ARXML 测试覆盖解析回写、引用缓存、重命名同步及多文件对象。
@@ -112,3 +127,293 @@ git diff --check
 - 交付前检查差异，不混入临时 ARXML、打印结果、缓存或展开后的 Python 绑定；发布资源仅保留按规则生成的 ZIP。
 - 说明改动、验证结果和未验证事项；不能把未执行或跳过的检查描述为通过。
 - 用户文档中的示例注释优先说明代码做什么、对应哪个 XML 节点、结果如何使用。解释 `.xml_obj`、`.value` 等必要写法，避免用泛型、类型保留或模块实现细节代替操作说明。
+
+## ARXML MCP 使用说明
+
+本项目通过本地 stdio MCP 提供 ARXML 查询、编辑、校验和保存工具。安装、启动及客户端配置见 [README](README.md#通过-mcp-供大模型使用)。
+
+### 操作前置条件
+
+可在客户端启动参数中指定 `mcp --schema-version 00044`，当前源码的绑定准备与持久化规则见 [AUTOSAR 版本与类型](#autosar-版本与类型)。版本选择发生在服务启动前，服务运行后版本固定；AI 文件操作流程不负责额外生成或切换版本。已发布的 `2.1.2` / `2.1.3` 仍使用独立临时包；`2.1.1` 使用运行时生成。完整配置见 [README](README.md#通过-mcp-供大模型使用)。
+
+文件声明版本与绑定不匹配时，返回 `SCHEMA_MISMATCH` 告警并继续尝试解析；解析成功后可以正常查询。`project_info` 的 `schema_version` 为当前绑定版本，告警信息同时列出文件声明版本。
+
+版本告警会保留在工程信息、校验和差异预览中，本身不阻止编辑或保存。实际绑定无法识别的内容、XSD 错误及其他校验错误仍按原规则处理；保存保留文件原有的 schema 声明。不能仅凭 `4.2.2`、`00044` 等版本标签的形式推断高低或兼容性。
+
+服务以进程启动目录作为文件访问范围，包含其子目录。相对文件路径以此目录为基准，不接受范围外的文件；客户端通过 `cwd` 指定业务模型目录。
+
+### 智能体技能
+
+面向编程智能体的操作技能位于 [`skills/arxml-mcp/SKILL.md`](skills/arxml-mcp/SKILL.md)，附带按需读取的操作指南和 AUTOSAR 基础知识。可以显式要求智能体读取该入口，或将整个 `skills/arxml-mcp/` 目录复制到所用智能体支持的技能目录；MCP 连接仍需单独配置。后续领域知识可继续添加到该技能的 `references/`，并在入口中注明适用任务。
+
+发行包同时附带 `[site-packages]\k3q_arxml\skills\arxml-mcp`，这是本 MCP 的使用手册，操作 ARXML 前应优先读取。如果尚未加载 `arxml-mcp` Skill，先调用不带参数的 `get_skill_path()` 获取实际目录，再读取其中的 `SKILL.md` 和任务所需 `references`；无需先打开工程。建议将整个目录复制安装到客户端的 skills 目录后刷新加载，便于后续自动发现和加载，无需重新创建技能。工具只返回目录路径，不读取或解析文档内容。
+
+使用 `uv run --with "k3q-arxml[mcp]"` 启动时，该包及其依赖由临时环境提供；临时环境由 uv 缓存管理并可复用。当前工作目录用于确定 ARXML 文件访问范围，查找 Skill 时以 `get_skill_path()` 返回的实际安装路径为准。
+
+### 工具与操作流程
+
+| 工具 | 用途 |
+| --- | --- |
+| `get_skill_path` | 获取本 MCP 使用手册目录；操作前优先读取，建议安装为 arxml-mcp Skill，无需工程会话 |
+| `open_project` | 加载明确指定的文件集合，获取 `project_id`、`file_id` 和 `revision` |
+| `project_info` | 查看工程状态及未保存文件 |
+| `find_nodes` | 按 XML 标签、名称子串、路径前缀和文件查询具名节点 |
+| `get_node` | 读取摘要或分页 XML，也可以读取节点内一个 XPath 对应的元素 |
+| `find_references` | 查询入向引用，返回来源节点和相对 XPath |
+| `describe_type` | 查看当前绑定中 XML 标签的字段、枚举及 compound choices |
+| `rename_node` | 重命名节点，自动同步指向它及后代的已加载引用 |
+| `patch_xml` | 在指定节点内提交一批属性、文本或结构修改 |
+| `validate_project` | 检查 XSD、重复对象路径、引用目标及 DEST |
+| `preview_changes` | 分页预览全部未保存差异并获取 `preview_token` |
+| `save_changes` | 使用预览凭据显式保存并生成备份 |
+| `close_project` | 关闭会话；丢弃未保存修改必须指定 `discard_changes=true` |
+
+例如，让模型将 `types.arxml` 中的 `/Types/Speed` 改名为 `Velocity`，同时同步 `interfaces.arxml` 中的引用：
+
+1. 调用 `open_project`，传入 `{"filepaths":["types.arxml","interfaces.arxml"]}`。
+2. 用返回的 `project_id` 调用 `get_node` 和 `find_references`，确认目标及影响范围。
+3. 调用 `rename_node`，传入 `project_id`、`ref="/Types/Speed"`、`new_name="Velocity"` 和最新 `revision`。
+4. 用返回的新路径 `/Types/Velocity` 继续查询；后续编辑使用新的 `revision`。
+5. 调用 `validate_project` 和 `preview_changes`；按 `next_offset` 查看剩余差异。
+6. 在客户端完成用户确认后，用返回的 `preview_token` 调用 `save_changes`。
+
+查询默认返回摘要；`get_node(include_xml=true)` 才返回 XML。查询、引用和差异默认每页 50 项，最多 200 项；XML 默认每段 16,000 字符，通过 `xml_offset` / `xml_limit` 继续读取。差异中的超长行拆成最多 2,000 字符的片段，`continuation=true` 表示上一行的延续。两种分页都在 `next_offset=null` 时结束。
+
+`preview_changes` 默认使用 `diff_mode="file"`，展示磁盘原文到待保存文件的完整差异，其中可能包含 `0` 到 `0.0` 等序列化规范化变化。可用 `diff_mode="model"` 聚焦本次对象修改：此视图对比加载时和当前对象经同一绑定序列化后的 XML。返回的 `serialization_changed_files` 列出受影响文件中原文与加载时序列化结果存在差异的文件；这些差异不会出现在 model 视图中，保存前仍需阅读 file 视图。分页时保持 `diff_mode` 不变，两种视图共用当前 revision 的预览凭据。
+
+文件恢复到加载时或最近保存后的对象内容时，`dirty` 自动清除，预览不再列出该文件，保存也不写回该文件。成功恢复原值仍会增加 `revision` 并使旧预览凭据失效；其他文件尚有修改时仍需处理。
+
+`describe_type` 也支持 SHORT-NAME、TYPE-TREF 等嵌套标签。同名标签可能对应不同类型，返回的 `alternative_types` 列出候选；可传入 `python_type` 精确选择，例如 `describe_type(xml_tag="TYPE-TREF", python_type="VariableDataPrototype.TypeTref")`。父标签描述中的 `type_names` 可用于确定选择。
+
+### 局部 XML 修改
+
+`patch_xml` 的 `operations` 按顺序在同一份候选树上执行，整批成功才发布到会话。XPath 相对于指定节点，`ar:` 对应 `http://autosar.org/schema/r4.0`。每项操作必须匹配一个元素；不支持绝对路径、父轴、XPath 函数或变量。
+
+支持属性谓词，例如以包含该类型的包为 `ref` 时，用 `./ar:ELEMENTS/ar:SW-BASE-TYPE[@UUID='test-create-001']` 选择类型。不能漏掉 XML 中间的 ELEMENTS 层；匹配失败时错误会给出实际匹配数量，先读取 XML 核对结构，再调整选择器。重命名的 `ref` 使用当前已存在的旧路径，`new_name` 只填新名称。
+
+下面的请求修改 `/Types/Velocity` 的 UUID 和 CATEGORY 文本：
+
+```json
+{
+  "project_id": "使用 open_project 返回的 ID",
+  "ref": "/Types/Velocity",
+  "revision": 1,
+  "operations": [
+    {"op": "set_attribute", "xpath": ".", "attribute": "UUID", "value": "DCE:12345678-1234-1234-1234-123456789abc"},
+    {"op": "set_text", "xpath": "./ar:CATEGORY", "value": "VALUE"}
+  ]
+}
+```
+
+可用操作为 `set_text`、`set_attribute`、`remove_attribute`、`append`、`insert_before`、`insert_after`、`replace` 和 `delete`。结构操作的 `xml` 必须是一个完整元素，并携带 AUTOSAR 命名空间。例如，在包的 ELEMENTS 末尾添加数据类型：
+
+```json
+{
+  "op": "append",
+  "xpath": "./ar:ELEMENTS",
+  "xml": "<APPLICATION-PRIMITIVE-DATA-TYPE xmlns=\"http://autosar.org/schema/r4.0\"><SHORT-NAME>AddedType</SHORT-NAME><CATEGORY>VALUE</CATEGORY></APPLICATION-PRIMITIVE-DATA-TYPE>"
+}
+```
+
+现有 SHORT-NAME 的修改使用 `rename_node`。`replace` 必须保持其中具名节点的路径集合；结构增删使用 `delete` 与 `append` / `insert`。删除后仍有已加载引用指向被删节点时，整批编辑失败。顶层包的增删使用 `ref="/"`，并明确提供 `file_id`；选择器仍相对于 AUTOSAR 根节点。
+
+修改失败不会改变活动会话及原文件。过期 `revision` 会被拒绝；成功修改后旧预览凭据失效。服务拒绝 DTD、实体声明、未知绑定字段和不能往返保留的 XML；元素顺序由 compound fields 保留并通过往返核对。
+
+### 校验、备份与恢复
+
+引用同步和校验只覆盖明确加载的文件。已有未解析引用作为警告保留；编辑新增的悬空引用、重复路径或可检查的 DEST 类型错误会阻止修改。能由当前绑定表示但未通过 XSD 的输入允许加载查询，受影响文件必须修复到通过 XSD 后才能发布修改和保存。XSD 校验不覆盖全部 AUTOSAR 业务规则。
+
+保存前会检查所有已加载文件是否在外部修改，并再次校验。原始文件备份位于同目录，名称类似 `.types.arxml.k3q-<唯一ID>.bak`；返回结果包含完整路径。工作目录下的 `.k3q-mcp-recovery-<唯一ID>.json` 记录文件路径、备份路径、前后 SHA-256 及状态。成功保存后状态为 `complete`，普通写入失败且恢复成功时为 `rolled_back`。
+
+每个文件通过同目录原子替换保存；多文件保存不具备系统级原子性。进程中断或恢复失败留下 `pending` / `rollback_failed` 清单时，服务会阻止打开工程、继续编辑或保存。恢复步骤：
+
+1. 停止所有可能写入这些文件的程序，读取清单中的文件与备份路径。
+2. 比较当前文件与清单的 `old_sha256` / `new_sha256`；若两者均不匹配，先保留外部改动，不直接覆盖。
+3. 对照 `old_sha256` 核对备份，将需要恢复的文件恢复为备份内容，并再次核对哈希。
+4. 全部文件恢复完成后，将清单 `status` 改为 `rolled_back`，再重新打开工程。
+
+服务不会自动推断用户已确认保存；确认交互由模型客户端负责。关闭服务会丢失尚未保存的内存修改。
+
+## 开发与 PyPI 发布
+
+本节面向维护者，说明打包、发行验证及 PyPI 发布步骤。
+
+### 当前状态
+
+当前发行名为 `k3q-arxml`，Python 导入名为 `k3q_arxml`，包版本由 `pyproject.toml` 的 `[project].version` 决定，当前为 `2.1.3`，对应 Git 标签 `v2.1.3`。Git 标签不会自动改变包版本。
+
+仓库已配置 Hatchling 构建后端及发行文件范围，可直接按下文构建。`git push` 只更新 Git 仓库，上传 PyPI 还需要构建和发布发行文件。
+
+依赖管理遵循[环境与类型生成](#环境与类型生成)中的规则；下文安装命令中的 `==2.1.3` 用于核验指定发行包。
+
+### 打包配置
+
+`pyproject.toml` 中的打包配置如下：
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+[tool.hatch.build.targets.wheel]
+packages = ["k3q_arxml"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "k3q_arxml/skills"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/k3q_arxml",
+    "/skills",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+
+[tool.hatch.build]
+exclude = [
+    "**/__pycache__",
+    "**/*.pyc",
+    "/k3q_arxml/.codegen-*",
+]
+```
+
+wheel 包含 Python 库、MCP 子包、默认的真实 `autosar.py`、`bindings/` 下各版本预生成 ZIP、`schemas/` 下全部 AUTOSAR XSD 和关联 `xml.xsd`，以及 `k3q_arxml/skills/arxml-mcp` 技能目录。运行时通过包内路径查找 XSD 和绑定 ZIP，不能只打包 `.py` 文件。
+
+`tool.uv.package = false` 保持仓库通过源码运行，`uv sync` 不自动安装项目自身，避免 Windows Python 3.11 在中文路径下读取可编辑安装的 `.pth` 文件时出现编码错误。`uv build` 仍使用 Hatchling 构建发行包，用户可正常安装 wheel。
+
+sdist 包含构建 wheel 所需的包源码、`pyproject.toml`、包介绍 `README.md`、许可证 `LICENSE` 和原始 `skills/` 目录；从 sdist 构建 wheel 时使用同一映射。Hatchling 还会自动附带 `PKG-INFO` 和 `.gitignore`。测试、名称处理脚本及开发说明保留在 Git 仓库，不放入发行包。
+
+用户可从仓库的 `skills/arxml-mcp` 或已安装包的 `k3q_arxml/skills/arxml-mcp` 复制完整目录到智能体的技能目录。安装包内路径可用 `python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"` 查看；复制方式见 README。安装 Python 包不会自动复制 Skill 或注册 MCP。
+
+无需添加控制台脚本入口，已有 `__main__.py` 支持 `python -m k3q_arxml`。Hatchling 的构建系统及文件选择规则见 [官方文档](https://hatch.pypa.io/latest/config/build/)。
+
+### 发布前验证与版本号
+
+先安装包含 MCP 的完整开发环境：
+
+```powershell
+uv sync --locked --extra mcp
+uv run python -c "from k3q_arxml import autosar; print(autosar.SCHEMA_VERSION)"
+```
+
+发布包应携带默认的 4.2.2 绑定。如果输出其他版本，在停止使用本环境的 MCP 后执行 `uv run -m k3q_arxml generate 4.2.2`，再验证。从 `2.1.2` 起，发行包携带全部可用版本的预生成 ZIP。
+
+首次准备发行资源，或更新 XSD、xsdata 版本及生成规则后，在仓库根目录执行：
+
+```powershell
+uv run python build_bindings.py
+```
+
+脚本默认并行生成两个版本，不修改默认 `autosar.py`，输出 `k3q_arxml/bindings/autosar_<版本>.zip`。每个 ZIP 仅包含真实的 `autosar.py` 和 `metadata.json`，记录 schema 版本、XSD / 代码 SHA-256 及 xsdata 版本。可用 `--versions 00044 --jobs 1` 只重建指定版本。将这些 ZIP 作为发行资源纳入版本控制，构建 wheel / sdist 时直接打包；用户启动 MCP 时只校验并解压指定版本，无需重新生成。
+
+发布回归还需在测试包副本中覆盖 `mcp --schema-version 00044` 的实际解压和 stdio 连接，确认副本的 `autosar.py` 已被替换、返回的绑定版本正确，同版本重新连接不再替换绑定，stdout 仅承载 MCP 协议。不得覆盖仓库或日常使用环境的绑定。测试会检查 ZIP 覆盖全部可用 schema 及内容哈希，并拒绝缺失、损坏或版本不匹配的压缩包；写入或替换失败时原绑定必须保持完整。
+
+检查目标 PyPI 项目的所有权、已有版本及待发布内容。以下以 `2.1.3` 为例；若该版本已使用，应选择新的版本，并同步替换后文目录、文件名和安装命令中的版本号。PyPI 已上传的发行文件不能用不同内容覆盖，即使删除也不能重用该文件名。详见 [PyPI 帮助](https://pypi.org/help/#file-name-reuse)。
+
+修改 `[project].version` 后更新锁文件，并执行：
+
+```powershell
+uv lock
+uv sync --locked --extra mcp
+uv run pytest -v
+uv run ruff check k3q_arxml tests build_bindings.py chg_adt_name.py chg_adt_idt_name.py
+uv run ruff format --check k3q_arxml tests build_bindings.py chg_adt_name.py chg_adt_idt_name.py
+uv lock --check
+git diff --check
+git status --short
+```
+
+确认测试实际执行，尤其是 MCP stdio 测试没有因缺少依赖而跳过。新增打包配置后，将 `pyproject.toml` 与更新后的 `uv.lock` 一起纳入本次发布提交。
+
+### 构建与检查发行文件
+
+使用本次版本的独立输出目录，避免上传旧版本文件：
+
+```powershell
+uv build --no-sources --out-dir dist/2.1.3
+uvx --from twine twine check --strict dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+uv run python -m zipfile -l dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl
+uv run python -m tarfile -l dist/2.1.3/k3q_arxml-2.1.3.tar.gz
+```
+
+应得到一个 `.whl` 和一个 `.tar.gz`。确认 wheel 中存在 `k3q_arxml/autosar.py`、`k3q_arxml/__main__.py`、`k3q_arxml/mcp/server.py`、`k3q_arxml/bindings/` 下覆盖全部可用版本的 ZIP、所有 XSD，以及完整的 `k3q_arxml/skills/arxml-mcp` 目录；sdist 应包含同一份代码、绑定 ZIP、schema 和 `skills/arxml-mcp`。确认 Skill 的所有本地文档链接在整目录复制后仍可用，且没有临时 ARXML、备份或恢复清单。构建目录和输出文件的行为见 [uv 发布指南](https://docs.astral.sh/uv/guides/package/)。
+
+在独立临时环境安装 wheel，避免误用仓库源码：
+
+```powershell
+$wheel = (Resolve-Path 'dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl').Path
+$checkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-release-' + [guid]::NewGuid())
+uv venv $checkDir --python 3.11
+$checkPython = Join-Path $checkDir 'Scripts/python.exe'
+uv pip install --python $checkPython "$wheel[mcp]"
+& $checkPython -I -c "from k3q_arxml import IOArxml, autosar; from k3q_arxml.schemas import SCHEMAS; print(autosar.SCHEMA_VERSION); print(SCHEMAS); assert SCHEMAS and all(p.is_file() for p in SCHEMAS.values())"
+& $checkPython -I -m k3q_arxml versions
+& $checkPython -I -m k3q_arxml mcp --help
+```
+
+`-I` 避免当前目录及 `PYTHONPATH` 中的源码遮住已安装包。还应在这个环境中用真实 MCP 客户端完成一次连接和工具发现；测试编辑、保存时只使用临时模型副本。另建环境安装 sdist，确认它也能构建和导入。
+
+### 可选：先上传 TestPyPI
+
+分别注册 [TestPyPI](https://test.pypi.org/account/register/) 和 [PyPI](https://pypi.org/account/register/) 账号，按站点要求完成验证和双因素认证。两个站点的账号、项目与 API token 相互独立。
+
+在 TestPyPI 的账号设置创建 API token。首次创建项目时可使用具有相应账号权限的 token，项目创建后使用项目范围 token。下面通过隐藏输入读取 token，不将实际 token 写进文件：
+
+```powershell
+$publishSecret = Read-Host 'TestPyPI API token' -AsSecureString
+$env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
+try {
+    uv publish --publish-url https://test.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+    if ($LASTEXITCODE -ne 0) { throw 'TestPyPI 上传失败' }
+} finally {
+    Remove-Item Env:UV_PUBLISH_TOKEN
+}
+```
+
+上传成功后，在另一个临时环境中验证测试站上的包。为避免从 TestPyPI 解析完整依赖树，先从正式 PyPI 安装与本次 wheel 相同的依赖，再只替换测试包：
+
+```powershell
+$testDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-testpypi-' + [guid]::NewGuid())
+uv venv $testDir --python 3.11
+$testPython = Join-Path $testDir 'Scripts/python.exe'
+uv pip install --python $testPython "$wheel[mcp]"
+uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.1.3'
+& $testPython -I -c "from k3q_arxml import IOArxml, autosar; print(autosar.SCHEMA_VERSION)"
+& $testPython -I -m k3q_arxml versions
+```
+
+安装命令失败时先停止后续验证，不能把原有本地 wheel 的导入成功当作 TestPyPI 安装成功。测试站的上传和安装地址不同，前者是 `/legacy/`，后者是 `/simple/`。更多说明见 [PyPA 发布教程](https://packaging.python.org/en/latest/tutorials/packaging-projects/)。
+
+### 上传正式 PyPI
+
+完成发行文件检查和独立环境安装验证后，先提交发布内容、创建 `v2.1.3` 标签并推送远程仓库，再使用正式 PyPI 创建的 token 上传已经验证过的同一组文件。配置了 TestPyPI 时，可先完成上一节的测试发布。
+
+```powershell
+$publishSecret = Read-Host 'PyPI API token' -AsSecureString
+$env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
+try {
+    uv publish --publish-url https://upload.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+    if ($LASTEXITCODE -ne 0) { throw 'PyPI 上传失败' }
+} finally {
+    Remove-Item Env:UV_PUBLISH_TOKEN
+}
+```
+
+发布完成后，从仓库外的新环境安装并验证：
+
+```powershell
+$releaseDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-pypi-' + [guid]::NewGuid())
+uv venv $releaseDir --python 3.11
+$releasePython = Join-Path $releaseDir 'Scripts/python.exe'
+uv pip install --python $releasePython 'k3q-arxml[mcp]==2.1.3'
+& $releasePython -I -c "from k3q_arxml import IOArxml, autosar; print(autosar.SCHEMA_VERSION)"
+& $releasePython -I -m k3q_arxml versions
+```
+
+客户端可将 `command` 指向安装环境的 `python.exe`，`args` 设为 `["-m", "k3q_arxml", "mcp"]`，`cwd` 指向业务模型目录；安装后的包无需额外设置源码 `PYTHONPATH`。当前没有 `arxml-mcp` Skill 时，可调用 `get_skill_path()` 获取内置目录并自行读取；复制到客户端技能目录是可选方式。
+
+确认 PyPI 页面、安装结果与远程发布提交及标签对应。后续更新按“新版本号 → 验证 → 构建 → 推送提交与标签 → 可选 TestPyPI → 正式 PyPI”重复；自动发布可后续接入 [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/)，不需要把长期 token 存入仓库。

@@ -17,7 +17,7 @@
 
 ### 从 PyPI 安装
 
-以下命令需有已发布到 PyPI 的可用版本；维护者的首次发布流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
+以下命令需有已发布到 PyPI 的可用版本；维护者的首次发布流程见 [AGENTS.md 的发布指南](AGENTS.md#开发与-pypi-发布)。
 
 已有 Python 环境时执行：
 
@@ -374,4 +374,4 @@ print(target)
 
 源码仓库中的对应目录为 `skills/arxml-mcp`，复制其中的 `SKILL.md` 和全部 `references` 即可。Skill 的安装和 MCP 客户端连接需要分别配置。
 
-工具说明、编辑流程、校验与恢复见 [MCP.md](MCP.md)。
+工具说明、编辑流程、校验与恢复见 [AGENTS.md 的 MCP 说明](AGENTS.md#arxml-mcp-使用说明)。

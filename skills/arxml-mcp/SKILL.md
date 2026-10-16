@@ -13,7 +13,7 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 - 变更规则、目标和验证条件已明确，需要批量执行、复用脚本或编写回归验证时，读 [Python 编写与执行指南](references/python-workflows.md)。可以将固化步骤写成 Python 运行，不必逐项调用 MCP；探索阶段仍可用 MCP 确定结构与引用。脚本编写完成后，在当前任务目录用 `uv venv --python=3.11` 创建环境，通过 `uv pip install` 安装依赖，再用 `uv run python script.py` 运行，具体命令见该指南。
 - 涉及 ADT / IDT、数据类型映射、SenderReceiverInterface 或 AUTOSAR 路径含义时，读 [AUTOSAR 基础知识](references/autosar-basics.md)。
 - MCP 未连接或需要启动参数时，先看下面的用户启动前准备；完整客户端配置见 [README 的 MCP 说明](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/README.md#通过-mcp-供大模型使用)。此目录可从源码仓库或已安装包的 `k3q_arxml/skills/arxml-mcp` 整体复制到智能体支持的技能目录。
-- 保存恢复步骤见 [MCP 操作指南](references/mcp-workflows.md#错误处理与保存恢复)；完整工具说明及回归命令见 [MCP.md](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/MCP.md)。
+- 保存恢复步骤见 [MCP 操作指南](references/mcp-workflows.md#错误处理与保存恢复)；完整工具说明及回归命令见 [AGENTS.md](https://github.com/luojiaaoo/k3q_arxml/blob/main/AGENTS.md#arxml-mcp-使用说明)。
 - 不默认加载整个知识目录、全部 XSD 或大型生成绑定。按标签、类型和任务查找相关片段。
 
 ## 用户启动前准备
