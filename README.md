@@ -9,355 +9,242 @@
     <img src="https://img.shields.io/badge/python-=3.11-blue">
 </p>
 
-`k3q_arxml` 用于读取、查询和修改 AUTOSAR ARXML 文件，支持同时处理多个文件。
+读取与编辑 AUTOSAR ARXML 文件的轻量 Python 库，附带按 AUTOSAR 版本拆分的 MCP 服务，可接入 Claude Code 等智能体直接查询、修改、校验 ARXML。
+
+- **Python 包 `k3q_arxml`**：加载一个或多个 ARXML，建立对象 / 反向引用 / UUID 索引，支持增量编辑与回写。
+- **多版本绑定**：内置 `00043` ~ `00052` 与 `4.2.2` 共 11 个 AUTOSAR schema 版本的预生成 Python 绑定，按需导入，互不干扰。
+- **MCP 服务**：按版本提供 `k3q-arxml-mcp-<版本>` 命令，14 个工具覆盖工程加载、节点查询、类型查询、重命名、XML 补丁、校验、差异预览与保存。
 
 ## 安装
 
-需要 Python 3.11 或以上版本。发行包名为 `k3q-arxml`，Python 导入名为 `k3q_arxml`。
+要求 Python 3.11+。**使用 MCP 前必须先把本库安装进系统级 Python 环境**（MCP 进程由智能体客户端拉起，依赖系统环境里的命令）。
 
-### 从 PyPI 安装
+从 PyPI 安装：
 
-以下命令需有已发布到 PyPI 的可用版本；维护者的首次发布流程见 [AGENTS.md 的发布指南](AGENTS.md#开发与-pypi-发布)。
-
-已有 Python 环境时执行：
-
-```console
+```bash
 python -m pip install k3q-arxml
 ```
 
-当前源码默认安装 MCP 依赖，构建并安装后即可使用 MCP 入口，无需额外选择安装项。已发布的 2.1.3 仍使用原来的可选依赖配置。
+升级到最新版本：
 
-也可以使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理自己的项目，在项目目录执行：
-
-```console
-uv init --bare --python 3.11
-uv add k3q-arxml
+```bash
+python -m pip install --upgrade k3q-arxml
 ```
 
-已有 uv 项目时跳过 `uv init`。后续运行脚本以 `uv run python example.py` 为例，pip 用户使用 `python example.py`。uv 的依赖管理方式见 [官方项目指南](https://docs.astral.sh/uv/guides/projects/)。
+查看当前版本：
 
-### 从源码安装开发环境
-
-需要开发本库或运行仓库样例时，下载仓库并在仓库根目录执行：
-
-```console
-uv sync --locked
+```bash
+python -m pip show k3q-arxml
 ```
 
-### 选择 AUTOSAR 绑定
+从源码安装（仅开发需要）：
 
-当前源码已预生成全部支持版本的绑定，平铺在 `k3q_arxml/schemas/schame/` 中，例如 `autosar_4_2_2.py`、`autosar_00044.py`；对应 XSD 及关联的 `xml.xsd` 放在 `k3q_arxml/schemas/xsd/autosar_<版本>/` 中。用户直接选择所需模块，无需生成或切换文件；不提供旧的 autosar.py 兼容入口及 versions / generate 开发命令。
+```bash
+python -m pip install .
+```
 
-仓库样例使用 4.2.2。其他文件可查看开头 xsi:schemaLocation 中的 XSD 文件名，例如 AUTOSAR_4-2-2.xsd 对应 4.2.2。MCP 启动命令与 schemas/xsd 下的版本目录一一对应，例如 autosar_00044 对应 k3q-arxml-mcp-00044。
+安装后系统 Python 的 Scripts 目录会生成 `k3q-arxml-mcp-<版本>` 命令，例如 `k3q-arxml-mcp-00044`。验证安装：
 
-Python 中明确导入所需版本，并把模块传给文件或工程。例如处理 00044：
+```bash
+python -c "import k3q_arxml; print(k3q_arxml.__file__)"
+k3q-arxml-mcp-00044 --help
+```
+
+开发环境使用 uv 管理：
+
+```bash
+uv sync
+uv run pytest
+```
+
+## Python 包用法
+
+### 1. 选择版本绑定
+
+ARXML 的类型定义按 AUTOSAR 版本拆分在 `k3q_arxml.schemas.schame.autosar_<版本>` 模块中。查看文件头 `xsi:schemaLocation` 中的 XSD 文件名确定版本，例如 `AUTOSAR_00044.xsd` 对应 `autosar_00044`：
+
+```python
+from k3q_arxml.schemas.schame import autosar_00044 as autosar  # AUTOSAR_00044.xsd
+# from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar  # AUTOSAR_4-2-2.xsd
+```
+
+可用版本与命令对照：
+
+| schema 版本 | 绑定模块 | MCP 命令 |
+| --- | --- | --- |
+| 00043 ~ 00052 | `autosar_00043` ~ `autosar_00052` | `k3q-arxml-mcp-00043` ~ `k3q-arxml-mcp-00052` |
+| 4.2.2 | `autosar_4_2_2` | `k3q-arxml-mcp-4-2-2` |
+
+### 2. 加载文件
+
+`IOArxml` 管理一组文件，跨文件汇总查询结果；`ArxmlFile` 负责单文件的加载、索引与回写：
 
 ```python
 from pathlib import Path
 from k3q_arxml import IOArxml
-from k3q_arxml.schemas.schame import autosar_00044
 
-io = IOArxml([Path('types.arxml')], binding=autosar_00044)
-for node in io.ar(autosar_00044.SwBaseType):
-    print(node.ref)
+io = IOArxml(filepaths=[Path('SWC.arxml'), Path('Types.arxml')], binding=autosar)
+
+# 运行中追加文件（拒绝重复文件及跨文件重复对象路径）
+io.append(Path('More.arxml'))
 ```
 
-`ArxmlFile(binding=autosar_00044)` 与 `ArxmlMcpService(workspace, binding=autosar_00044)` 使用同一写法。必须显式传入 binding，库本身不会导入任何 AUTOSAR 版本。各版本可以在同一环境中并存，不会互相覆盖。
+约束：同一路径元组（SHORT-NAME 链）不能在多个文件中重复出现；引用必须是绝对路径（`/Package/Type`），不支持相对引用。
 
-本 README 的独立模块与启动入口对应当前源码，尚未发布；已发布的 2.1.3 使用旧接口。请先从源码构建并安装 wheel，再使用下方新入口。
+### 3. 查询
 
-## 读取文件
-
-将下面的代码保存为项目目录下的 `example.py`，运行 `uv run python example.py`。示例使用仓库中的 `tests/ThrottlePositionControlComposition.arxml`；从 PyPI 安装后，需另行下载该样例或将路径改为自己的 ARXML 文件：
+路径用元组表示，`('Package', 'Type')` 对应 `/Package/Type`，用 `str2ref` / `ref2str` 互转：
 
 ```python
-from pathlib import Path
+from k3q_arxml import str2ref, ref2str
 
-from k3q_arxml import IOArxml
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
-
-filepath = Path('tests/ThrottlePositionControlComposition.arxml')
-io_arxml = IOArxml(filepaths=[filepath], binding=autosar)
-
-# 查找所有 SW-BASE-TYPE 节点，打印路径和名称。
-for node in io_arxml.ar(autosar.SwBaseType):
-    print(node.ref, node.xml_obj.short_name.value)
+node = io.ref(('Types', 'Speed'))          # 按完整路径查唯一对象，不存在返回 None
+nodes = io.ar(clazz=autosar.SwBaseType)    # 按类型查对象（含子类），可加路径前缀过滤
+rows = io.ref_to_ref(('Types', 'Speed'))   # 查指向该路径的所有引用节点
 ```
 
-`node.xml_obj` 用来读取或修改节点内容；`short_name.value` 是 XML 中 `<SHORT-NAME>` 的文本。`node.ref` 是节点路径，例如 `('AUTOSAR_Platform', 'BaseTypes', 'uint16')` 对应 `/AUTOSAR_Platform/BaseTypes/uint16`。
+查询结果是包装节点：
 
-以下示例接着使用上面的 `io_arxml`。
+- `ArxmlNamedNode`：`.ref` 路径元组、`.short_name` 名称、`.xml_obj` 实际 XML 对象、`.content` 按需序列化出的 XML 文本。
+- `ArxmlRefNode`：`.xml_obj.value` 引用目标路径、`.set_dest(ref)` 改写引用、`.owner_ref` 包含该引用的最近具名对象。
 
-## 查询节点
+### 4. 编辑
 
-按完整路径查找，找不到时返回 `None`：
-
-```python
-node = io_arxml.ref(('AUTOSAR_Platform', 'BaseTypes', 'uint16'))
-if node is not None:
-    print(node.short_name)  # 输出 uint16。
-    print(node.content)  # 查看这个节点及其子节点的 XML。
-```
-
-按类型查找，也可以限定在某个包下：
-
-```python
-base_types = io_arxml.ar(
-    autosar.SwBaseType,
-    ref_prefix=('AUTOSAR_Platform', 'BaseTypes'),
-)
-for node in base_types:
-    print(node.ref)
-```
-
-常用类型包括 `autosar.ArPackage`（包）、`autosar.SenderReceiverInterface`（发送接收接口）、`autosar.ApplicationPrimitiveDataType`（应用基础数据类型）和 `autosar.ImplementationDataType`（实现数据类型）。
-
-## 访问上一级 XML 标签
-
-通过 XML 对象的 `arxml_parent` 可以访问上一级 XML 标签对象。例如，从 `<SHORT-NAME>` 返回它所属的 `<SW-BASE-TYPE>`：
-
-```python
-node = io_arxml.ref(('AUTOSAR_Platform', 'BaseTypes', 'uint16'))
-if node is not None:
-    short_name = node.xml_obj.short_name
-    parent = short_name.arxml_parent  # 上一级 SW-BASE-TYPE 标签对象。
-    print(parent.short_name.value)  # 输出 uint16。
-```
-
-可以继续通过 `parent.arxml_parent` 向上访问。上一级也可能是容器标签，不一定带有 `<SHORT-NAME>`；根对象的 `arxml_parent` 为 `None`。
-
-## 查询引用
-
-查找哪些节点引用了指定数据类型：
-
-```python
-target = ('AUTOSAR_Platform', 'BaseTypes', 'uint16')
-for reference in io_arxml.ref_to_ref(target):
-    print(reference.owner_ref)  # 引用所在节点的路径。
-    print(reference.xml_obj.value)  # 引用指向的路径文本。
-```
-
-只会查找已加载文件中的引用；需要检查其他文件时，先将它们一起加载。
-
-## 修改并保存
-
-**修改任何 XML 对象后，都要调用该对象的 `edited()`，再继续查询或保存。直接赋值或调用 `set_dest()` 不会自动刷新。**
-
-涉及多处关联修改时，先查齐并保存相关节点和引用，再使用 `ArxmlTransaction` 上下文收集需要刷新的 XML 对象，正常退出时统一调用 `edited()`。上下文内使用旧索引完成关联修改，退出后再查询新路径。
-
-每个已解析并扫描的 XML 对象（包括无名容器）都有 `edited()`。调用时，如果对象自身具名，就刷新自身及其子树；否则自动向上找到最近的具名祖先，刷新该祖先及其子树，不必手动找到具名父节点。若对象自身及其祖先都不具名，默认刷新会报错。
-
-增删或替换子节点时，在承载相应字段或列表的父对象上调用 `edited()`；新建但尚未扫描的对象还没有此方法。跨父节点移动时，分别刷新原父对象和新父对象，或在覆盖两边变化的共同祖先对象上调用。
-
-例如，修改节点的 UUID 后刷新并保存：
-
-```python
-node = io_arxml.ref(('AUTOSAR_Platform', 'BaseTypes', 'uint16'))
-if node is not None:
-    node.xml_obj.uuid = '12345678-1234-1234-1234-123456789abc'
-    node.xml_obj.edited()
-    io_arxml.flush_to_file()
-```
-
-`edited()` 默认刷新索引并标记文件已修改。**如果不确定修改是否影响索引，直接调用 `edited()`，不加参数即可。** 如果确认只修改普通属性，没有改变节点名称、UUID、引用或节点结构，可以调用 `edited(refresh_index=False)`，只标记文件已修改，省去索引刷新：
-
-```python
-node.xml_obj.s = 'updated-checksum'  # 修改 XML 的 S 校验和属性。
-node.xml_obj.edited(refresh_index=False)
-io_arxml.flush_to_file()
-```
-
-`edited()` 不会保存文件，完成修改并调用后，再用 `flush_to_file()` 将修改写回原文件。保存前请备份需要保留的文件。
-
-事务上下文的 `add()` 接收实际 XML 对象，即查询结果的 `.xml_obj`，也支持 `refresh_index` 参数，默认值为 `True`。例如，只修改校验和属性时可以这样写：
+直接修改 `.xml_obj` 上的字段，然后通过 `edited()` 刷新索引；批量修改用 `ArxmlTransaction` 延迟统一刷新：
 
 ```python
 from k3q_arxml import ArxmlTransaction
 
+node = io.ref(('Types', 'Speed'))
+rows = io.ref_to_ref(node.ref)
 with ArxmlTransaction() as transaction:
-    node.xml_obj.s = 'updated-checksum'
-    transaction.add(node.xml_obj, refresh_index=False)
-io_arxml.flush_to_file()
+    node.xml_obj.short_name.value = 'Velocity'   # 改 SHORT-NAME
+    transaction.add(node.xml_obj)
+    for row in rows:                             # 同步所有入向引用
+        row.set_dest(('Types', 'Velocity'))
+        transaction.add(row.xml_obj)
 ```
 
-不确定是否影响索引时，使用 `transaction.add(node.xml_obj)` 即可。同一 XML 对象重复添加只调用一次 `edited()`；只要有一次添加要求刷新索引，就会刷新。增删或替换子节点时，添加承载相应字段或列表的父对象，也可以是无名容器；跨父节点移动时，添加原父对象和新父对象，或覆盖两边变化的共同祖先对象。
+要点：
 
-上下文正常退出时按添加顺序执行 `edited()`，之后再查询或保存。上下文内抛出异常时不执行刷新，也不撤销已发生的对象修改；退出时某次刷新失败会停止后续刷新，已经完成的刷新保留。事务上下文不会自动保存文件。
+- 解析出的每个 XML 对象都注入了 `arxml_parent`（父节点）与 `edited()`（标记修改并增量刷新最近具名祖先的索引）。
+- `ArxmlTransaction.add(xml_obj)` 只登记一次、退出上下文时统一调用 `edited()`；不回滚、不自动保存。
+- 增删、移动子节点后，对改动所在的具名节点调用 `file.update_node(node)` 增量重建该子树的索引。
+- 重命名时库只改对象本身，**指向它的引用要自己同步**（`ref_to_ref` + `set_dest`，如上例）。
 
-修改引用目标时，先查齐引用并使用 `set_dest()` 修改，将引用对象加入上下文，退出时统一刷新：
+### 5. 保存
 
 ```python
-old_target = ('AUTOSAR_Platform', 'BaseTypes', 'uint16')
-new_target = ('AUTOSAR_Platform', 'BaseTypes', 'sint16')
-references = io_arxml.ref_to_ref(old_target)
-with ArxmlTransaction() as transaction:
-    for reference in references:
-        reference.set_dest(new_target)
-        transaction.add(reference.xml_obj)
-io_arxml.flush_to_file()
+io.flush_to_file()   # 只回写标记为已修改的文件
 ```
 
-## 重命名并同步引用
+单文件场景用 `ArxmlFile`：`ArxmlFile(binding=autosar).parse_file(path)` 加载已有文件，`parse_autosar(path, root_obj)` 从内存对象初始化新文件，`render()` 预览序列化结果，`save()` 写盘。回写保留原缩进与根节点前注释。
 
-重命名节点时，需要同时修改引用它的路径。下面将 `uint16` 改为 `uint16_custom`；请在包含原名称的文件上单独运行此示例：
+### 6. 批量处理示例
 
-```python
-old_ref = ('AUTOSAR_Platform', 'BaseTypes', 'uint16')
-new_ref = (*old_ref[:-1], 'uint16_custom')
-node = io_arxml.ref(old_ref)
-if node is not None:
-    # 先查出使用旧名称的全部引用，再统一修改。
-    references = io_arxml.ref_to_ref(old_ref)
-    with ArxmlTransaction() as transaction:
-        node.xml_obj.short_name.value = new_ref[-1]
-        transaction.add(node.xml_obj)
-        for reference in references:
-            reference.set_dest(new_ref)
-            transaction.add(reference.xml_obj)
-    # 目标名称和所有引用都已修改并刷新，再保存文件。
-    io_arxml.flush_to_file()
-
-    print(io_arxml.ref(new_ref).short_name)  # 输出 uint16_custom。
-```
-
-修改并调用 `edited()` 后，重新调用 `ref()` 或 `ar()` 获取节点。
-
-## 处理多个文件
-
-文件路径使用 `Path`，按实际文件位置替换下面的示例路径：
-
-```python
-io_arxml = IOArxml(filepaths=[Path('types.arxml'), Path('interfaces.arxml')], binding=autosar)
-
-# 后续还可以加入其他已有文件。
-io_arxml.append(Path('components.arxml'))
-
-# ar()、ref() 和 ref_to_ref() 会查询所有已加载文件。
-for node in io_arxml.ar(autosar.SenderReceiverInterface):
-    print(node.ref)
-
-# 只查询某个文件。
-file = io_arxml.files[Path('types.arxml').resolve()]
-node = file.ref(('DataTypes', 'Speed'))
-
-# 完成修改并调用 edited() 后，保存所有已修改文件。
-io_arxml.flush_to_file()
-```
-
-`append()` 要求文件存在且尚未加载；不同文件中出现相同节点路径时会报错。
-
-## 只处理一个文件
-
-也可以直接使用 `ArxmlFile`：
+完整的批量脚本见 [demo/](demo/)：`chg_adt_name.py` 按接口列表批量给 ADT 加/去后缀并同步引用，`chg_adt_idt_name.py` 批量为 ADT/IDT 加前缀。典型骨架：
 
 ```python
 from pathlib import Path
-
-from k3q_arxml import ArxmlFile
+from k3q_arxml import ArxmlTransaction, IOArxml
 from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
-file = ArxmlFile(binding=autosar).parse_file(Path('tests/ThrottlePositionControlComposition.arxml'))
-for node in file.ar(autosar.SwBaseType):
-    print(node.ref, node.short_name)
-
-# 修改对象后先调用 edited()，再执行 file.save() 写回这个文件。
+io = IOArxml(filepaths=list(Path('.').glob('**/*.arxml')), binding=autosar)
+for node in io.ar(clazz=autosar.ApplicationPrimitiveDataType):
+    rows = io.ref_to_ref(node.ref)
+    with ArxmlTransaction() as transaction:
+        node.xml_obj.short_name.value += '_Suffix'
+        transaction.add(node.xml_obj)
+        for row in rows:
+            row.xml_obj.value += '_Suffix'
+            transaction.add(row.xml_obj)
+io.flush_to_file()
 ```
 
-## 导出内容供查看
+批量场景的详细写法（多文件同步、事务、索引更新时机）见技能文档 [skills/k3q-arxml/references/scripting.md](skills/k3q-arxml/references/scripting.md)。
 
-```python
-io_arxml.print()  # 在终端查看文件内容。
-io_arxml.print(print_filepath=Path('model.txt'))  # 输出到文本文件。
-```
+## MCP 配置
 
-这里导出的是便于查看的对象内容；保存 ARXML 请使用 `flush_to_file()` 或 `file.save()`。
+### 前提
 
-## 名称处理脚本
+1. **使用系统级 Python 环境**，不要用项目私有 venv——MCP 由智能体客户端独立拉起进程。
+2. **启动 MCP 之前先安装本库**：`python -m pip install k3q-arxml`，确认 `k3q-arxml-mcp-<版本>` 命令可用。
+3. 按 ARXML 的 schema 版本选择命令；文件头 `xsi:schemaLocation="... AUTOSAR_00044.xsd"` → `k3q-arxml-mcp-00044`。
 
-以下脚本位于源码仓库，不随 PyPI 包安装。在仓库根目录查看参数用法：
+### Windows 启动方式
 
-```console
-uv run python -m demo.chg_adt_name --help
-uv run python -m demo.chg_adt_idt_name --help
-```
-
-- `demo/chg_adt_name.py`：通过 `--suffix` 指定后缀、`--soa_interface_name` 指定接口名称列表，按接口处理关联 ADT 的后缀。
-- `demo/chg_adt_idt_name.py`：接收一个或多个 ARXML 文件路径，整理 ADT / IDT 名称前缀。它会先全局删除文件文本中的 `ADT_` 和 `IDT_`，也会影响非名称文本。
-
-运行名称处理脚本前请备份输入文件，并在运行后检查修改结果。
-
-## 通过 MCP 供大模型使用
-
-MCP 服务使用本地 stdio。可以直接运行版本专用命令，例如 `k3q-arxml-mcp-00044` 或 `k3q-arxml-mcp-4-2-2`，无需填写版本参数。启动不接受版本参数，版本完全由命令名称决定。所有命令复用同一份启动代码，只导入选定版本的绑定，然后在同一进程启动服务。
-
-先在仓库构建，并安装到专用环境（PowerShell）：
-
-```powershell
-uv sync --locked
-uv build --no-sources --wheel --out-dir dist/local
-uv venv C:/arxml-env --python 3.11
-uv pip install --python C:/arxml-env/Scripts/python.exe "dist/local/k3q_arxml-2.1.3-py3-none-any.whl"
-```
-
-安装后，Windows 的 `Scripts` 目录下会有每个版本的 `k3q-arxml-mcp-<版本>.exe`；Linux/macOS 位于环境的 bin 目录，名称不带 .exe。版本号中的点用连字符表示，例如 4.2.2 对应 `k3q-arxml-mcp-4-2-2`。`pyproject.toml` 的 `[project.scripts]` 将全部命令映射到 `k3q_arxml.script.serve_mcp:main`，无参数函数按命令名称确定固定版本，规则见 [Python 打包指南](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#creating-executable-scripts)。
-
-客户端可直接启动对应版本命令，args 留空，cwd 指向业务模型目录。例如 Windows：
+**Windows 上必须通过 `cmd /c` 启动**，由 cmd 解析 Scripts 目录下的命令：
 
 ```json
 {
   "mcpServers": {
-    "arxml": {
-      "command": "C:/arxml-env/Scripts/k3q-arxml-mcp-00044.exe",
-      "args": [],
-      "cwd": "D:/models"
+    "k3q-arxml-00044": {
+      "command": "cmd",
+      "args": ["/c", "k3q-arxml-mcp-00044"]
     }
   }
 }
 ```
 
-Linux/macOS 将 command 改为环境的 `/path/to/env/bin/k3q-arxml-mcp-00044`，并填写模型目录。需要其他版本时改用对应版本的命令，再重新连接服务。args 留空，启动命令不接受 --schema-version 参数。
+写入 Claude Code 项目级 `.mcp.json`（或 `claude_desktop_config.json`）即可。注意事项：
 
-全部版本命令复用 `k3q_arxml/script/serve_mcp.py` 中的无参数入口。源码开发后按本节步骤构建并安装 wheel，即可使用这些命令；客户端工作目录仍为业务模型目录。
+- `command` 固定为 `cmd`，把实际命令放进 `args` 的 `/c` 之后，**不要**直接把 `k3q-arxml-mcp-00044` 写成 `command`。
+- 命令不在 PATH 时写全路径：`["/c", "C:\\Python311\\Scripts\\k3q-arxml-mcp-00044"]`。
+- 建议设置 `PYTHONUTF8=1`，避免中文路径/日志在 Windows 下乱码。
+- **MCP 的工作目录 = 服务启动目录**。`open_project` 只能加载该目录及其子目录内的 ARXML 文件，路径之外的文件会被拒绝。请在存放 arxml 的工程目录下启动客户端，或按客户端能力指定 `cwd`。
+- 需要多个版本时并列配置多个 server，名称区分即可，例如 `k3q-arxml-00044`、`k3q-arxml-4-2-2`。
 
-启动过程只读取选定的 Python 模块，不解压 ZIP、不修改安装目录、不通过 `-m k3q_arxml` 或子进程再次启动。不同版本的服务可使用同一个安装环境。服务启动后版本固定，文件访问范围为启动目录及子目录，日志和诊断写入 stderr，stdout 仅用于 MCP 协议。服务由客户端启动，无需手动再启动第二个服务。
-
-历史发布版本的启动计时见 [MCP 启动耗时记录](docs/mcp-startup-performance.md)，其中旧实现的数据不代表当前统一入口。
-
-### 安装随包提供的 Skill
-
-从 `2.1.0` 起，wheel 和源码发行包都附带完整的 `arxml-mcp` 技能目录。
-
-该 Skill 是本 MCP 的使用手册，操作 ARXML 前应优先读取。从 `2.1.1` 起，如果尚未加载 `arxml-mcp` Skill，先调用 MCP 工具 `get_skill_path()` 获取内置目录，再读取 `SKILL.md` 和任务所需参考文件；工具不解析内容，也不要求先打开工程。建议将整个目录安装到智能体的 skills 目录，便于后续自动发现和加载，无需重新创建技能。通过 `uv run --with` 启动时，Skill 位于该临时环境的 site-packages 中；也可用与服务相同的 Python 环境执行以下命令查询路径：
-
-```console
-python -c "from importlib.resources import files; print(files('k3q_arxml').joinpath('skills', 'arxml-mcp'))"
-```
-
-将输出路径中的整个 `arxml-mcp` 文件夹复制到智能体的技能目录，例如 Codex 的 `~/.codex/skills/`。也可以执行以下代码复制到 Codex 默认目录；目标已存在时会报错，先核对是否需要替换：
-
-```python
-from importlib.resources import files
-from pathlib import Path
-from shutil import copytree
-
-source = files('k3q_arxml').joinpath('skills', 'arxml-mcp')
-target = Path.home() / '.codex' / 'skills' / 'arxml-mcp'
-copytree(str(source), target)
-print(target)
-```
-
-源码仓库中的对应目录为 `skills/arxml-mcp`，复制其中的 `SKILL.md` 和全部 `references` 即可。Skill 的安装和 MCP 客户端连接需要分别配置。
-
-MCP 的 `describe_type` 用于查看字段和枚举摘要；需要确认 XML 顺序、分组约束或实际 Python 声明时，可直接调用 `get_type_source`，无需打开工程：
+Linux / macOS 直接调用命令：
 
 ```json
-{"name":"complexType:SW-BASE-TYPE","source":"xsd"}
+{
+  "mcpServers": {
+    "k3q-arxml-00044": {
+      "command": "k3q-arxml-mcp-00044"
+    }
+  }
+}
 ```
 
-```json
-{"name":"VariableDataPrototype.TypeTref","source":"binding"}
+### MCP 工具一览
+
+| 工具 | 作用 |
+| --- | --- |
+| `get_skill_path` | 返回内置使用手册（`skills/k3q-arxml`）目录，操作 ARXML 前优先阅读 |
+| `open_project` | 加载指定的 ARXML 文件集合，建立工程会话 |
+| `project_info` | 查看工程 revision、文件清单、未保存状态、加载诊断 |
+| `find_nodes` | 按 XML 标签 / 名称子串 / 路径前缀查找具名节点 |
+| `get_node` | 读取节点摘要与 XML（可分页、可 XPath 限定） |
+| `find_references` | 查找指向某路径的入向引用 |
+| `describe_type` | 查询 XML 标签的字段、枚举、compound choices |
+| `get_type_source` | 查询当前版本 XSD 或 Python 绑定源码片段 |
+| `rename_node` | 重命名 SHORT-NAME 并同步已加载文件中的引用 |
+| `patch_xml` | 对节点原子提交一批 XML 操作（set_text / append / replace / delete …） |
+| `validate_project` | 校验 XSD、重复路径、引用目标与 DEST |
+| `preview_changes` | 分页查看未保存差异，返回保存凭据 `preview_token` |
+| `save_changes` | 凭 `preview_token` 显式写盘（保留备份与恢复清单） |
+| `close_project` | 关闭会话，可选丢弃未保存修改 |
+
+约定：所有编辑工具都要带最新的 `revision`（查询结果里返回）；保存前必须先 `preview_changes` 拿到 `preview_token`；引用检查仅覆盖已加载文件。详细工作流见技能文档。
+
+## Skills
+
+仓库自带智能体技能 [skills/k3q-arxml/](skills/k3q-arxml/)，内容包括 MCP 用法、批量脚本写法以及 AUTOSAR 领域知识（持续补充）。MCP 服务的 `get_skill_path` 工具会返回该目录，供智能体按需阅读。
+
+可把 `skills/k3q-arxml` 复制到智能体的 skills 目录（如 `~/.claude/skills/`）自动加载，也可直接让智能体经 `get_skill_path` 读取。
+
+## 开发
+
+```bash
+uv sync                # 安装开发依赖
+uv run pytest          # 运行测试
+uv run ruff check .    # 静态检查
 ```
 
-也可按 XML 标签查询，例如 `{"name":"TYPE-TREF","source":"binding"}`。存在多个定义时返回候选，选择 `definition_id` 作为下一次 name；源码通过 `next_offset` 分页读取，候选通过 `next_candidate_offset` 分页读取。返回结果包含当前版本、来源位置及关联定义标识，始终查询当前服务版本。
+新增 schema 版本时把 XSD 放入 `k3q_arxml/schemas/xsd/autosar_<版本>/`，运行 `python k3q_arxml/cli.py --versions <版本>` 重新生成绑定（内部工具，需 xsdata）。
 
-工具说明、编辑流程、校验与恢复见 [AGENTS.md 的 MCP 说明](AGENTS.md#arxml-mcp-使用说明)。
+维护者打包与 PyPI 发布流程见 [RELEASING.md](RELEASING.md)。
+
+## License
+
+Apache-2.0

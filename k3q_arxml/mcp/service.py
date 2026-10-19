@@ -112,18 +112,18 @@ class ArxmlMcpService:
         return etree.XMLSchema(etree.parse(str(self._schema_path), etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)))
 
     def get_skill_path(self) -> str:
-        """获取本 MCP 使用手册（arxml-mcp Skill）的目录；无需参数或工程会话。
+        """获取本 MCP 使用手册（k3q-arxml Skill）的目录；无需参数或工程会话。
 
-        操作 ARXML 前应优先阅读使用手册。如果尚未加载 arxml-mcp Skill，先调用本工具，
+        操作 ARXML 前应优先阅读使用手册。如果尚未加载 k3q-arxml Skill，先调用本工具，
         再读取返回目录中的 SKILL.md，并按任务需要读取 references。
-        建议将整个 arxml-mcp 目录复制安装到智能体的 skills 目录，便于后续自动发现和加载；无需重新创建技能。
+        建议将整个 k3q-arxml 目录复制安装到智能体的 skills 目录，便于后续自动发现和加载；无需重新创建技能。
         本工具仅返回目录路径，不读取或解析手册内容。
         """
-        root = PACKAGE_ROOT / 'skills' / 'arxml-mcp'
+        root = PACKAGE_ROOT / 'skills' / 'k3q-arxml'
         if not root.is_dir():
-            root = PACKAGE_ROOT.parent / 'skills' / 'arxml-mcp'
+            root = PACKAGE_ROOT.parent / 'skills' / 'k3q-arxml'
         if not (root / 'SKILL.md').is_file():
-            fail('SKILL_NOT_FOUND', '找不到内置 arxml-mcp Skill。', '检查安装包或源码仓库附带的 skills/arxml-mcp 目录是否完整。')
+            fail('SKILL_NOT_FOUND', '找不到内置 k3q-arxml Skill。', '检查安装包或源码仓库附带的 skills/k3q-arxml 目录是否完整。')
         return str(root)
 
     def _project(self, project_id: str) -> McpProjectState:

@@ -659,7 +659,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert not skill.is_error, skill.content
                 skill_path = Path(skill.structured_content['result'])
                 assert (skill_path / 'SKILL.md').is_file()
-                assert skill_path == runtime / 'skills/arxml-mcp'
+                assert skill_path == runtime / 'skills/k3q-arxml'
                 outside = await client.call_tool('open_project', {'filepaths': [str(root / 'tests/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
