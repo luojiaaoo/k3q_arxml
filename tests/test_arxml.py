@@ -24,7 +24,7 @@ class TestArxml:
         self.autosar = autosar
         self.directory = tmp_path
         self.path = tmp_path / 'sample.arxml'
-        fixture = Path(__file__).resolve().parents[1] / 'test' / 'ThrottlePositionControlComposition.arxml'
+        fixture = Path(__file__).resolve().parent / 'ThrottlePositionControlComposition.arxml'
         copy2(fixture, self.path)
         with patch('k3q_arxml.arxml_file.logger'):
             yield
@@ -180,7 +180,7 @@ class TestArxml:
         assert ArxmlFile(binding=self.autosar).parse_file(other_path).ref(plain.ref).xml_obj.s == 'transaction-checksum'
 
     def test_swc_arxml_can_be_parsed(self):
-        fixture = Path(__file__).resolve().parents[1] / 'test' / 'SWC.arxml'
+        fixture = Path(__file__).resolve().parent / 'SWC.arxml'
         swc_path = self.directory / 'SWC.arxml'
         copy2(fixture, swc_path)
 

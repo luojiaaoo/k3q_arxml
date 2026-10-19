@@ -68,7 +68,7 @@ for node in io.ar(autosar_00044.SwBaseType):
 
 ## 读取文件
 
-将下面的代码保存为项目目录下的 `example.py`，运行 `uv run python example.py`。示例使用仓库中的 `test/ThrottlePositionControlComposition.arxml`；从 PyPI 安装后，需另行下载该样例或将路径改为自己的 ARXML 文件：
+将下面的代码保存为项目目录下的 `example.py`，运行 `uv run python example.py`。示例使用仓库中的 `tests/ThrottlePositionControlComposition.arxml`；从 PyPI 安装后，需另行下载该样例或将路径改为自己的 ARXML 文件：
 
 ```python
 from pathlib import Path
@@ -76,7 +76,7 @@ from pathlib import Path
 from k3q_arxml import IOArxml
 from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
-filepath = Path('test/ThrottlePositionControlComposition.arxml')
+filepath = Path('tests/ThrottlePositionControlComposition.arxml')
 io_arxml = IOArxml(filepaths=[filepath], binding=autosar)
 
 # 查找所有 SW-BASE-TYPE 节点，打印路径和名称。
@@ -256,7 +256,7 @@ from pathlib import Path
 from k3q_arxml import ArxmlFile
 from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
-file = ArxmlFile(binding=autosar).parse_file(Path('test/ThrottlePositionControlComposition.arxml'))
+file = ArxmlFile(binding=autosar).parse_file(Path('tests/ThrottlePositionControlComposition.arxml'))
 for node in file.ar(autosar.SwBaseType):
     print(node.ref, node.short_name)
 

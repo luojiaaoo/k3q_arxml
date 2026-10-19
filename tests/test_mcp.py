@@ -314,7 +314,7 @@ def test_successful_save_refreshes_revert_baseline(project):
 def test_model_preview_omits_existing_normalization_but_file_preview_preserves_it(project):
     service, _, _ = project
     path = service.workspace / 'normalization.arxml'
-    copy2(Path(__file__).resolve().parents[1] / 'test/ThrottlePositionControlComposition.arxml', path)
+    copy2(Path(__file__).resolve().parent / 'ThrottlePositionControlComposition.arxml', path)
     original = path.read_bytes()
     info = service.open_project([str(path)])
     node = service.find_nodes(info.project_id, xml_tag='SW-BASE-TYPE', limit=1).items[0]
@@ -587,7 +587,7 @@ def test_sample_round_trip_and_compound_order(tmp_path):
     if autosar.SCHEMA_VERSION != '4.2.2':
         pytest.skip('样例需要 4.2.2 绑定')
     path = tmp_path / 'sample.arxml'
-    copy2(Path(__file__).resolve().parents[1] / 'test/ThrottlePositionControlComposition.arxml', path)
+    copy2(Path(__file__).resolve().parent / 'ThrottlePositionControlComposition.arxml', path)
     service = ArxmlMcpService(tmp_path, binding=autosar)
     info = service.open_project([str(path)])
     node = service.find_nodes(info.project_id, xml_tag='SW-BASE-TYPE').items[0]
@@ -660,7 +660,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 skill_path = Path(skill.structured_content['result'])
                 assert (skill_path / 'SKILL.md').is_file()
                 assert skill_path == runtime / 'skills/arxml-mcp'
-                outside = await client.call_tool('open_project', {'filepaths': [str(root / 'test/ThrottlePositionControlComposition.arxml')]})
+                outside = await client.call_tool('open_project', {'filepaths': [str(root / 'tests/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
                 assert not opened.is_error, opened.content
