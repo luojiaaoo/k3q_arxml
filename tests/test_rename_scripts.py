@@ -2,8 +2,7 @@ import sys
 
 import pytest
 
-import chg_adt_idt_name
-import chg_adt_name
+from demo import chg_adt_idt_name, chg_adt_name
 from k3q_arxml import IOArxml
 
 

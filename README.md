@@ -277,12 +277,12 @@ io_arxml.print(print_filepath=Path('model.txt'))  # 输出到文本文件。
 以下脚本位于源码仓库，不随 PyPI 包安装。在仓库根目录查看参数用法：
 
 ```console
-uv run python chg_adt_name.py --help
-uv run python chg_adt_idt_name.py --help
+uv run python -m demo.chg_adt_name --help
+uv run python -m demo.chg_adt_idt_name --help
 ```
 
-- `chg_adt_name.py`：通过 `--suffix` 指定后缀、`--soa_interface_name` 指定接口名称列表，按接口处理关联 ADT 的后缀。
-- `chg_adt_idt_name.py`：接收一个或多个 ARXML 文件路径，整理 ADT / IDT 名称前缀。它会先全局删除文件文本中的 `ADT_` 和 `IDT_`，也会影响非名称文本。
+- `demo/chg_adt_name.py`：通过 `--suffix` 指定后缀、`--soa_interface_name` 指定接口名称列表，按接口处理关联 ADT 的后缀。
+- `demo/chg_adt_idt_name.py`：接收一个或多个 ARXML 文件路径，整理 ADT / IDT 名称前缀。它会先全局删除文件文本中的 `ADT_` 和 `IDT_`，也会影响非名称文本。
 
 运行名称处理脚本前请备份输入文件，并在运行后检查修改结果。
 

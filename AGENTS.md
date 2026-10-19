@@ -38,8 +38,8 @@
 | `k3q_arxml/schemas/xsd/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |
 | `k3q_arxml/schemas/schame/autosar_*.py` | 各版本真实生成绑定，不手动编辑；不保留旧的 autosar.py 兼容入口 |
 | `k3q_arxml/script/serve_mcp.py` | 各版本 MCP 命令通过 project.scripts 安装到环境 Scripts / bin 目录，均复用同一启动文件 |
-| `chg_adt_name.py` | 按 SenderReceiverInterface 名称列表为关联 ADT 添加或恢复后缀 |
-| `chg_adt_idt_name.py` | 全局移除文本中的 ADT / IDT 前缀，再为目标数据类型及引用添加前缀 |
+| `demo/chg_adt_name.py` | 按 SenderReceiverInterface 名称列表为关联 ADT 添加或恢复后缀 |
+| `demo/chg_adt_idt_name.py` | 全局移除文本中的 ADT / IDT 前缀，再为目标数据类型及引用添加前缀 |
 | `test.py`、`test3.py` | 历史手工示例，依赖缺失的 `test/model_merge.arxml`，不是自动化测试入口 |
 | `tests/ThrottlePositionControlComposition.arxml`、`tests/SWC.arxml`、`tests/IoHwAb.arxml` | 已提交的 ARXML 测试样例 |
 | `tests/` | pytest 回归测试，使用 fixture、参数化用例和临时文件 |
@@ -94,7 +94,7 @@ uv run python k3q_arxml/cli.py --versions 4.2.2
 - `ArxmlFile.save()` 回写单个文件，`IOArxml.flush_to_file()` 调用各文件的保存方法；查询操作不回写。测试使用临时副本，不覆盖用户文件或已提交样例。
 - 保留命名空间、schema、缩进和序列化配置；往返结果验证对象与引用语义，不要求逐字节一致。
 - 编辑脚本使用当前绑定，不再提供版本参数。保留 main 入口，导入脚本不得执行参数解析或文件写入。
-- `chg_adt_idt_name.py` 在解析前执行全局文本替换；修改时注意非目标文本及重复执行的影响。
+- `demo/chg_adt_idt_name.py` 在解析前执行全局文本替换；修改时注意非目标文本及重复执行的影响。
 - 不删除 XSD，不修改无关版本。调整 schema 时同步检查本地关联 XSD 的相对路径。
 - 生成使用 `--structure-style single-package --compound-fields --relative-imports -mll 999`。compound fields 用于保留重复 choice / sequence 的元素顺序。
 - 不手动编辑生成的 `autosar_*.py`，不对其运行项目级格式化。调查生成类型时按类名定位，避免完整输出大型模块。全部绑定作为发行源码资源纳入版本控制。
@@ -105,8 +105,8 @@ uv run python k3q_arxml/cli.py --versions 4.2.2
 ```console
 uv run python k3q_arxml/cli.py --versions 4.2.2
 uv run pytest -v
-uv run ruff check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
-uv run ruff format --check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
+uv run ruff check k3q_arxml tests demo
+uv run ruff format --check k3q_arxml tests demo
 uv lock --check
 git diff --check
 ```
@@ -320,8 +320,8 @@ uv run python k3q_arxml/cli.py
 uv lock
 uv sync --locked
 uv run pytest -v
-uv run ruff check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
-uv run ruff format --check k3q_arxml tests chg_adt_name.py chg_adt_idt_name.py
+uv run ruff check k3q_arxml tests demo
+uv run ruff format --check k3q_arxml tests demo
 uv lock --check
 git diff --check
 git status --short
