@@ -47,14 +47,14 @@ class TestGenerate:
         assert target.read_text(encoding='utf-8') == '# previous working binding\n'
         assert not list(self.root.glob('.codegen-*'))
 
-    def test_batch_generation_selects_versions_and_writes_beside_each_schema_directory(self):
+    def test_batch_generation_selects_versions_and_writes_flat_modules(self):
         output = self.root / '批量 输出'
         with patch('sys.argv', ['cli.py', '--versions', '4.2.2', '00048', '4.2.2', '--output', str(output), '--jobs', '2']):
             build_bindings()
-        assert {path.name for path in output.iterdir()} == {'autosar_4_2_2', 'autosar_00048'}
+        assert {path.name for path in output.iterdir()} == {'autosar_4_2_2.py', 'autosar_00048.py'}
         for version in ('4.2.2', '00048'):
             suffix = version.replace('.', '_')
-            target = output / f'autosar_{suffix}' / f'autosar_{suffix}.py'
+            target = output / f'autosar_{suffix}.py'
             module = runpy.run_path(str(target))
             assert module['SCHEMA_VERSION'] == version
             assert module['Sample'](value='batch').value == 'batch'

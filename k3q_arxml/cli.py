@@ -13,9 +13,11 @@ import click
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 SCHEMA_ROOT = PACKAGE_ROOT / 'schemas'
+XSD_ROOT = SCHEMA_ROOT / 'xsd'
+BINDING_ROOT = SCHEMA_ROOT / 'schame'
 
 
-def discover_schemas(root: Path = SCHEMA_ROOT) -> dict[str, Path]:
+def discover_schemas(root: Path = XSD_ROOT) -> dict[str, Path]:
     """扫描 autosar_* 目录，只列出存在对应主 XSD 文件的版本。"""
     schemas = {}
     for directory in sorted(root.glob('autosar_*')):
@@ -72,13 +74,13 @@ def _generate_binding(version: str, target: Path, *, stderr: bool = False) -> No
         raise click.ClickException(f'xsdata 生成失败（退出码 {exc.returncode}），当前绑定未修改。') from exc
     except OSError as exc:
         raise click.ClickException(f'无法生成绑定：{exc}') from exc
-    click.echo(f'已生成 {target}\n使用 from k3q_arxml.schemas.{target.stem} import {target.stem} 导入类型；请在新的 Python 进程中使用。', err=stderr)
+    click.echo(f'已生成 {target}\n使用 from k3q_arxml.schemas.schame import {target.stem} 导入类型；请在新的 Python 进程中使用。', err=stderr)
 
 
 def build_binding(version: str, output: Path) -> Path:
     started = time.perf_counter()
     suffix = version.replace('.', '_')
-    target = output / f'autosar_{suffix}' / f'autosar_{suffix}.py'
+    target = output / f'autosar_{suffix}.py'
     target.parent.mkdir(parents=True, exist_ok=True)
     _generate_binding(version, target, stderr=True)
     print(f'{version}: {target.stat().st_size / 1024:.0f} KiB, {time.perf_counter() - started:.1f}s', flush=True)
@@ -89,7 +91,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--versions', nargs='+', choices=tuple(SCHEMAS), default=list(SCHEMAS))
     parser.add_argument('--jobs', type=int, choices=range(1, 5), default=2)
-    parser.add_argument('--output', type=Path, default=SCHEMA_ROOT)
+    parser.add_argument('--output', type=Path, default=BINDING_ROOT)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:

@@ -48,7 +48,7 @@ XSD 可以检查结构、部分值约束与枚举；它不证明当前文件集�
 
 ## 本地依据与后续专题
 
-- 安装包中的 `k3q_arxml/schemas/autosar_4_2_2/AUTOSAR_4-2-2.xsd`：按 `name="DATA-TYPE-MAP"`、`name="VARIABLE-DATA-PROTOTYPE"` 等搜索相应类型和关联组。可用 `python -c "from pathlib import Path; from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2; print(Path(autosar_4_2_2.__file__).with_name('AUTOSAR_4-2-2.xsd'))"` 查询实际路径。
+- 安装包中的 `k3q_arxml/schemas/xsd/autosar_4_2_2/AUTOSAR_4-2-2.xsd`：按 `name="DATA-TYPE-MAP"`、`name="VARIABLE-DATA-PROTOTYPE"` 等搜索相应类型和关联组。可用 `python -c "from importlib.resources import files; print(files('k3q_arxml.schemas').joinpath('xsd', 'autosar_4_2_2', 'AUTOSAR_4-2-2.xsd'))"` 查询实际路径。
 - [已提交 ARXML 样例](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/test/ThrottlePositionControlComposition.arxml)：观察实际层级、类型定义与引用，查询或练习时下载到临时副本。
 - [MCP 编辑服务](https://github.com/luojiaaoo/k3q_arxml/blob/v2.1.3/k3q_arxml/mcp/service.py)：判断工具能力、引用检查及保存边界；工具返回的实际 schema 优先于本文中的示例。
 

@@ -46,16 +46,16 @@ uv sync --locked
 
 ### 选择 AUTOSAR 绑定
 
-当前源码已预生成全部支持版本的绑定，与对应 XSD 一起放在 `k3q_arxml/schemas/autosar_<版本>/` 中，例如 `autosar_4_2_2.py`、`autosar_00044.py`。用户直接选择所需模块，无需生成或切换文件；不提供旧的 autosar.py 兼容入口及 versions / generate 开发命令。
+当前源码已预生成全部支持版本的绑定，平铺在 `k3q_arxml/schemas/schame/` 中，例如 `autosar_4_2_2.py`、`autosar_00044.py`；对应 XSD 及关联的 `xml.xsd` 放在 `k3q_arxml/schemas/xsd/autosar_<版本>/` 中。用户直接选择所需模块，无需生成或切换文件；不提供旧的 autosar.py 兼容入口及 versions / generate 开发命令。
 
-仓库样例使用 4.2.2。其他文件可查看开头 xsi:schemaLocation 中的 XSD 文件名，例如 AUTOSAR_4-2-2.xsd 对应 4.2.2。MCP 启动命令与 schemas 下的版本目录一一对应，例如 autosar_00044 对应 k3q-arxml-mcp-00044。
+仓库样例使用 4.2.2。其他文件可查看开头 xsi:schemaLocation 中的 XSD 文件名，例如 AUTOSAR_4-2-2.xsd 对应 4.2.2。MCP 启动命令与 schemas/xsd 下的版本目录一一对应，例如 autosar_00044 对应 k3q-arxml-mcp-00044。
 
 Python 中明确导入所需版本，并把模块传给文件或工程。例如处理 00044：
 
 ```python
 from pathlib import Path
 from k3q_arxml import IOArxml
-from k3q_arxml.schemas.autosar_00044 import autosar_00044
+from k3q_arxml.schemas.schame import autosar_00044
 
 io = IOArxml([Path('types.arxml')], binding=autosar_00044)
 for node in io.ar(autosar_00044.SwBaseType):
@@ -74,7 +74,7 @@ for node in io.ar(autosar_00044.SwBaseType):
 from pathlib import Path
 
 from k3q_arxml import IOArxml
-from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
 filepath = Path('test/ThrottlePositionControlComposition.arxml')
 io_arxml = IOArxml(filepaths=[filepath], binding=autosar)
@@ -254,7 +254,7 @@ io_arxml.flush_to_file()
 from pathlib import Path
 
 from k3q_arxml import ArxmlFile
-from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
 file = ArxmlFile(binding=autosar).parse_file(Path('test/ThrottlePositionControlComposition.arxml'))
 for node in file.ar(autosar.SwBaseType):

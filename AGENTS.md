@@ -22,7 +22,7 @@
 - xsdata 及 CLI 支持 `>=26.2,<27`，Click 支持 `>=8.2.1,<9`，lxml 支持 `>=5.4.0,<6`；Ruff 限定在 `>=0.13.3,<0.14`，避免生成配置受不兼容变更影响。
 - 日志使用 Loguru `>=0.7.3,<0.8`，配置统一放在 `k3q_arxml/log.py`；其他模块只导入 logger，入口脚本通过 `configure_logging()` 设置级别。
 - 使用 Hatchling 构建 wheel 和 sdist；`tool.uv.package = false` 保持仓库通过源码运行，避免中文路径下可编辑安装的编码问题。打包与发布流程见[开发与 PyPI 发布](#开发与-pypi-发布)。
-- 保留所有 XSD；发布前生成全部 `k3q_arxml/schemas/autosar_<版本>/autosar_<版本>.py` 真实绑定并随包分发。所有 MCP 命令复用同一入口，仅按版本命令名称选择版本，在函数内部仅导入对应模块；启动不生成、解压、替换绑定或启动子进程。
+- 保留所有 XSD；发布前生成全部 `k3q_arxml/schemas/schame/autosar_<版本>.py` 真实绑定并随包分发。所有 MCP 命令复用同一入口，仅按版本命令名称选择版本，在函数内部仅导入对应模块；启动不生成、解压、替换绑定或启动子进程。
 
 ## 目录与职责
 
@@ -35,8 +35,8 @@
 | `k3q_arxml/cli.py` | 内部的路径常量、XSD 发现与绑定生成工具；不对用户注册开发 CLI；直接执行仅供维护者批量生成绑定 |
 | `k3q_arxml/schemas/__init__.py` | 定义 ARXML 核心 dataclass、Pydantic 模型和类型别名；不负责版本目录发现 |
 | `k3q_arxml/mcp/schemas.py` | 集中定义 MCP 请求、响应模型及会话状态，与核心 ARXML 模型分开维护 |
-| `k3q_arxml/schemas/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |
-| `k3q_arxml/schemas/autosar_*/autosar_*.py` | 各版本真实生成绑定，不手动编辑；不保留旧的 autosar.py 兼容入口 |
+| `k3q_arxml/schemas/xsd/autosar_*/` | 各版本 AUTOSAR XSD 及关联的 `xml.xsd`，均保留在版本控制中 |
+| `k3q_arxml/schemas/schame/autosar_*.py` | 各版本真实生成绑定，不手动编辑；不保留旧的 autosar.py 兼容入口 |
 | `k3q_arxml/script/serve_mcp.py` | 各版本 MCP 命令通过 project.scripts 安装到环境 Scripts / bin 目录，均复用同一启动文件 |
 | `chg_adt_name.py` | 按 SenderReceiverInterface 名称列表为关联 ADT 添加或恢复后缀 |
 | `chg_adt_idt_name.py` | 全局移除文本中的 ADT / IDT 前缀，再为目标数据类型及引用添加前缀 |
@@ -67,8 +67,8 @@ uv run python k3q_arxml/cli.py --versions 4.2.2
 
 ### AUTOSAR 版本与类型
 
-- 可用版本从 `schemas/autosar_*` 目录扫描，只包含存在对应主 XSD 的版本，不硬编码版本范围。维护者通过 k3q_arxml/cli.py 生成指定版本为 `autosar_<版本>.py`，成功后原子替换该模块；失败保留旧文件，不影响其他版本。
-- Python 明确导入版本，例如 `from k3q_arxml.schemas.autosar_00044 import autosar_00044`，通过 `binding=autosar_00044` 传给文件、工程或 MCP 服务。模块是真实生成类型，不使用懒加载代理、全局切换或 sys.modules 别名。
+- 可用版本从 `schemas/xsd/autosar_*` 目录扫描，只包含存在对应主 XSD 的版本，不硬编码版本范围。维护者通过 k3q_arxml/cli.py 将指定版本平铺生成为 `schemas/schame/autosar_<版本>.py`，成功后原子替换该模块；失败保留旧文件，不影响其他版本。
+- Python 明确导入版本，例如 `from k3q_arxml.schemas.schame import autosar_00044`，通过 `binding=autosar_00044` 传给文件、工程或 MCP 服务。模块是真实生成类型，不使用懒加载代理、全局切换或 sys.modules 别名。
 - 包入口直接导入 ARXML 接口；绑定在使用它的函数内部 import，避免导入无关版本。所有版本均预先生成，不提供 autosar.py 兼容入口。cli.py 供内部导入和维护者直接执行，不注册 k3q-arxml 命令，也不提供 python -m k3q_arxml 入口。
 - MCP 仅提供免参数的各版本命令，例如 `k3q-arxml-mcp-00044`。全部映射到 script/serve_mcp.py 的同一个无参数函数，仅按命令名固定版本，不提供通用命令及 --schema-version 参数。所有版本取自实际 XSD 目录，仅导入指定模块并显式传给服务。启动不运行 -m、不写入安装目录、不启动子进程。服务运行后版本固定，解析、引用索引及编辑复制均保留该绑定。AI 文件操作流程不额外生成、切换或重启，也不重复询问版本。
 - `ArxmlFile` 在对象解析前核对文件 `xsi:schemaLocation` 声明的 AUTOSAR XSD 与当前绑定的 `SCHEMA_VERSION`；版本不一致时告警并继续解析，缺少声明时抛出 `ValueError`。MCP 将版本不匹配作为结构化 warning 返回，不仅凭版本号拒绝加载；实际绑定解析、XSD、引用及编辑往返校验仍正常执行，保存保留原文件声明，不自动切换版本。
@@ -292,7 +292,7 @@ sdist 包含构建 wheel 所需的包源码、`pyproject.toml`、包介绍 `READ
 
 ```powershell
 uv sync --locked
-uv run python -c "from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
+uv run python -c "from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
 ```
 
 发布包携带全部版本独立绑定，包括 `autosar_4_2_2.py`。没有 autosar.py 兼容入口；发布前检查模块 SCHEMA_VERSION 与文件名对应。
@@ -303,7 +303,7 @@ uv run python -c "from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as a
 uv run python k3q_arxml/cli.py
 ```
 
-脚本每次并行生成两个版本，最终覆盖全部可用版本；输出 `k3q_arxml/schemas/autosar_<版本>/autosar_<版本>.py`，例如 autosar_00044.py。可用 --versions 00044 --jobs 1 只重建指定版本。全部真实模块纳入版本控制，构建 wheel / sdist 时直接分发；启动无需生成或解压。
+脚本每次并行生成两个版本，最终覆盖全部可用版本；输出 `k3q_arxml/schemas/schame/autosar_<版本>.py`，例如 autosar_00044.py。可用 --versions 00044 --jobs 1 只重建指定版本。全部真实模块纳入版本控制，构建 wheel / sdist 时直接分发；启动无需生成或解压。
 
 发布回归需通过实际脚本入口建立 stdio 连接，覆盖 4.2.2 和 00044 的工具发现、查询、引用同步、编辑、预览与保存。检查入口仅导入对应绑定、默认模块未被额外导入、源文件不被启动过程改写；stdout 仅承载 MCP 协议。
 
@@ -345,7 +345,7 @@ $checkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-release-' + 
 uv venv $checkDir --python 3.11
 $checkPython = Join-Path $checkDir 'Scripts/python.exe'
 uv pip install --python $checkPython "$wheel"
-& $checkPython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar; from k3q_arxml.cli import SCHEMAS; print(autosar.SCHEMA_VERSION); print(SCHEMAS); assert SCHEMAS and all(p.is_file() for p in SCHEMAS.values())"
+& $checkPython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar; from k3q_arxml.cli import SCHEMAS; print(autosar.SCHEMA_VERSION); print(SCHEMAS); assert SCHEMAS and all(p.is_file() for p in SCHEMAS.values())"
 & $checkPython -I -c "from k3q_arxml.script.serve_mcp import main; assert callable(main)"
 ```
 
@@ -376,7 +376,7 @@ uv venv $testDir --python 3.11
 $testPython = Join-Path $testDir 'Scripts/python.exe'
 uv pip install --python $testPython "$wheel"
 uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.1.3'
-& $testPython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
+& $testPython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
 ```
 
 安装命令失败时先停止后续验证，不能把原有本地 wheel 的导入成功当作 TestPyPI 安装成功。测试站的上传和安装地址不同，前者是 `/legacy/`，后者是 `/simple/`。更多说明见 [PyPA 发布教程](https://packaging.python.org/en/latest/tutorials/packaging-projects/)。
@@ -403,7 +403,7 @@ $releaseDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-pypi-' + [
 uv venv $releaseDir --python 3.11
 $releasePython = Join-Path $releaseDir 'Scripts/python.exe'
 uv pip install --python $releasePython 'k3q-arxml==2.1.3'
-& $releasePython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
+& $releasePython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
 ```
 
 客户端将 command 指向安装环境 Scripts/k3q-arxml-mcp-00044.exe（Linux/macOS 使用 bin 下同名命令），args 为空，cwd 指向业务模型目录。需要其他版本时改用对应命令，不传版本参数。安装后无需源码 PYTHONPATH；get_skill_path 返回内置手册目录。

@@ -16,7 +16,7 @@ class TestArxml:
     @pytest.fixture(autouse=True)
     def setup_arxml(self, tmp_path):
         try:
-            from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+            from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
         except ImportError:
             pytest.skip('缺少预生成的 4.2.2 绑定，请维护者运行 k3q_arxml/cli.py --versions 4.2.2')
         if autosar.SCHEMA_VERSION != '4.2.2':

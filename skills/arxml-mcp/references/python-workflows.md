@@ -22,7 +22,7 @@ uv run python script.py                   # 运行编写好的脚本
 
 安装依赖与运行脚本使用同一个环境及其中已准备的绑定。脚本不会自动生成或切换绑定，也不会重启正在运行的服务。
 
-当前源码为每个版本提供独立模块，例如 `from k3q_arxml.schemas.autosar_00044 import autosar_00044`。通过 `binding=autosar_00044` 传给 `IOArxml`、`ArxmlFile` 或 `ArxmlMcpService`，解析、索引、复制和编辑均使用该绑定；必须显式传入 binding，库本身不导入任何版本。同一环境中的不同版本互不覆盖，不提供旧的 `autosar.py` 入口。以下示例明确使用 4.2.2；已发布的 2.1.3 使用旧接口，运行前应安装当前源码构建的 wheel。
+当前源码为每个版本提供独立模块，例如 `from k3q_arxml.schemas.schame import autosar_00044`。通过 `binding=autosar_00044` 传给 `IOArxml`、`ArxmlFile` 或 `ArxmlMcpService`，解析、索引、复制和编辑均使用该绑定；必须显式传入 binding，库本身不导入任何版本。同一环境中的不同版本互不覆盖，不提供旧的 `autosar.py` 入口。以下示例明确使用 4.2.2；已发布的 2.1.3 使用旧接口，运行前应安装当前源码构建的 wheel。
 
 `ArxmlMcpService` 位于 `k3q_arxml.mcp.service`，可直接调用，不需要启动 stdio 或额外编写协议客户端。它是当前版本的服务接口；调用签名以实际安装版本为准。Python 直接调用不会经过 MCP SDK 的参数校验，显式传入正确类型：`Path` 工作目录、文件路径字符串列表、`McpPatchOperation` 对象列表和服务实际返回的 revision。
 
@@ -38,7 +38,7 @@ uv run python script.py                   # 运行编写好的脚本
 from pathlib import Path
 
 from k3q_arxml import IOArxml
-from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
 
 def load_files(filepaths):
@@ -78,13 +78,13 @@ def list_base_types(io):
 ```python
 from lxml import etree
 
-from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 from pathlib import Path
 
 
 def validate_xsd(io):
     parser = etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)
-    schema_path = Path(autosar.__file__).with_name(f'AUTOSAR_{autosar.SCHEMA_VERSION.replace(".", "-")}.xsd')
+    schema_path = Path(autosar.__file__).parents[1] / 'xsd' / Path(autosar.__file__).stem / f'AUTOSAR_{autosar.SCHEMA_VERSION.replace(".", "-")}.xsd'
     schema = etree.XMLSchema(etree.parse(str(schema_path), parser))
     for filepath, file in io.files.items():
         root = etree.fromstring(file.render().encode('utf-8'), parser)
@@ -136,7 +136,7 @@ def main(argv=None):
     parser.add_argument('--save', action='store_true')
     args = parser.parse_args(argv)
 
-    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2
+    from k3q_arxml.schemas.schame import autosar_4_2_2
 
     service = ArxmlMcpService(args.workspace, binding=autosar_4_2_2)
     opened = service.open_project(args.files)

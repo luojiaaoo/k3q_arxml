@@ -17,7 +17,7 @@ def main() -> None:
         raise click.UsageError('请使用 k3q-arxml-mcp-<版本> 命令启动，例如 k3q-arxml-mcp-00044。')
 
     suffix = schema_version.replace('.', '_')
-    binding = import_module(f'k3q_arxml.schemas.autosar_{suffix}.autosar_{suffix}')
+    binding = import_module(f'k3q_arxml.schemas.schame.autosar_{suffix}')
 
     from k3q_arxml.log import configure_logging
     from k3q_arxml.mcp.server import create_server

@@ -10,23 +10,28 @@ from unittest.mock import patch
 import pytest
 
 from k3q_arxml import ArxmlFile, IOArxml
-from k3q_arxml.cli import PACKAGE_ROOT, SCHEMAS, SCHEMA_ROOT
+from k3q_arxml.cli import BINDING_ROOT, PACKAGE_ROOT, SCHEMAS, XSD_ROOT
 
 
 def test_bundled_modules_and_entrypoints_cover_all_schemas():
     expected = {f'autosar_{version.replace(".", "_")}.py' for version in SCHEMAS}
-    assert {path.name for path in SCHEMA_ROOT.glob('autosar_*/autosar_*.py')} == expected
+    assert {path.name for path in BINDING_ROOT.glob('autosar_*.py')} == expected
+    assert not list(BINDING_ROOT.glob('autosar_*/'))
+    assert not list(BINDING_ROOT.rglob('*.xsd'))
+    assert not list(XSD_ROOT.rglob('*.py'))
     assert not (PACKAGE_ROOT / 'autosar.py').exists()
     assert not (PACKAGE_ROOT / 'bindings').exists()
     config = tomllib.loads((PACKAGE_ROOT.parent / 'pyproject.toml').read_text(encoding='utf-8'))
     entries = config['project']['scripts']
     commands = {f'k3q-arxml-mcp-{version.replace(chr(46), chr(45))}' for version in SCHEMAS}
     assert entries == dict.fromkeys(commands, 'k3q_arxml.script.serve_mcp:main')
-    assert not list(SCHEMA_ROOT.glob('autosar_*/__init__.py'))
+    assert not (BINDING_ROOT / '__init__.py').exists()
     assert not (PACKAGE_ROOT / 'script/__init__.py').exists()
     for version in SCHEMAS:
         suffix = version.replace('.', '_')
-        assert f'SCHEMA_VERSION = {version!r}' in (SCHEMAS[version].parent / f'autosar_{suffix}.py').read_text(encoding='utf-8')[-100:]
+        assert f'SCHEMA_VERSION = {version!r}' in (BINDING_ROOT / f'autosar_{suffix}.py').read_text(encoding='utf-8')[-100:]
+        assert SCHEMAS[version].parent.parent == XSD_ROOT
+        assert (SCHEMAS[version].parent / 'xml.xsd').is_file()
 
 
 @pytest.mark.parametrize('version', SCHEMAS)
@@ -40,7 +45,7 @@ from click.testing import CliRunner
 from k3q_arxml import IOArxml
 assert 'k3q_arxml.cli' not in sys.modules
 from k3q_arxml.script.serve_mcp import main
-assert not any(name.startswith('k3q_arxml.schemas.autosar_') for name in sys.modules)
+assert not any(name.startswith('k3q_arxml.schemas.schame.autosar_') for name in sys.modules)
 server = ModuleType('k3q_arxml.mcp.server')
 server.create_server = MagicMock()
 sys.modules['k3q_arxml.mcp.server'] = server
@@ -58,8 +63,8 @@ with TemporaryDirectory() as directory:
     path.write_text('<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_{version.replace(chr(46), chr(45))}.xsd"/>', encoding='utf-8')
     io = IOArxml([path], binding=binding)
     assert isinstance(io.files[path.resolve()].root, binding.Autosar)
-assert binding.Autosar.__module__ == 'k3q_arxml.schemas.autosar_{suffix}.autosar_{suffix}'
-assert [name for name in sys.modules if name.startswith('k3q_arxml.schemas.autosar_')] == ['k3q_arxml.schemas.autosar_{suffix}', 'k3q_arxml.schemas.autosar_{suffix}.autosar_{suffix}']
+assert binding.Autosar.__module__ == 'k3q_arxml.schemas.schame.autosar_{suffix}'
+assert [name for name in sys.modules if name.startswith('k3q_arxml.schemas.schame.autosar_')] == ['k3q_arxml.schemas.schame.autosar_{suffix}']
 """
     result = subprocess.run(
         [sys.executable, '-c', code], cwd=PACKAGE_ROOT.parent, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, capture_output=True, text=True, encoding='utf-8'
@@ -68,7 +73,7 @@ assert [name for name in sys.modules if name.startswith('k3q_arxml.schemas.autos
 
 
 def test_io_append_uses_explicit_binding(tmp_path):
-    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from k3q_arxml.schemas.schame import autosar_00044
 
     path = tmp_path / 'types.arxml'
     path.write_text(
@@ -82,8 +87,8 @@ def test_io_append_uses_explicit_binding(tmp_path):
 
 
 def test_version_services_keep_bindings_during_edit_clone_and_root_patch(tmp_path):
-    from k3q_arxml.schemas.autosar_00044 import autosar_00044
-    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2
+    from k3q_arxml.schemas.schame import autosar_00044
+    from k3q_arxml.schemas.schame import autosar_4_2_2
     from k3q_arxml.mcp.schemas import McpPatchOperation
     from k3q_arxml.mcp.service import ArxmlMcpService
 
@@ -114,7 +119,7 @@ def test_version_services_keep_bindings_during_edit_clone_and_root_patch(tmp_pat
 
 
 def test_main_passes_selected_binding_and_cwd_without_subprocess(tmp_path, monkeypatch):
-    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from k3q_arxml.schemas.schame import autosar_00044
     from click.testing import CliRunner
     from k3q_arxml.script.serve_mcp import main
 
@@ -140,7 +145,7 @@ def test_invalid_or_help_arguments_do_not_import_binding(args):
 @pytest.mark.parametrize('command', ['k3q-arxml-mcp-00044', 'k3q-arxml-mcp-00044.exe'])
 def test_version_command_needs_no_arguments(command, tmp_path, monkeypatch):
     from click.testing import CliRunner
-    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from k3q_arxml.schemas.schame import autosar_00044
     from k3q_arxml.script.serve_mcp import main
 
     monkeypatch.chdir(tmp_path)

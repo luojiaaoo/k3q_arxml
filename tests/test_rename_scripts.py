@@ -9,7 +9,7 @@ from k3q_arxml import IOArxml
 
 @pytest.fixture
 def rename_files(tmp_path):
-    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+    from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 
     if autosar.SCHEMA_VERSION != '4.2.2':
         pytest.skip('重命名脚本测试需要生成 4.2.2 绑定')

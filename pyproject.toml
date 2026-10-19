@@ -50,7 +50,7 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py311"
 line-length = 180
-extend-exclude = ["k3q_arxml/schemas/autosar_*/autosar_*.py", "**/.codegen-*"]
+extend-exclude = ["k3q_arxml/schemas/schame/autosar_*.py", "**/.codegen-*"]
 
 [tool.ruff.format]
 quote-style = "single"

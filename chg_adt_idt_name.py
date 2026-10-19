@@ -12,7 +12,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from k3q_arxml import ArxmlTransaction, IOArxml, str2ref, ref2str
-    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+    from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
     from k3q_arxml.log import configure_logging
 
     for filepath in args.arxml_files:

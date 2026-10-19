@@ -12,7 +12,7 @@ import pytest
 from lxml import etree
 
 from k3q_arxml import ArxmlFile
-from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
 from k3q_arxml.mcp import persistence
 from k3q_arxml.mcp.schemas import McpPatchOperation
 from k3q_arxml.mcp.service import ArxmlMcpService
@@ -610,7 +610,7 @@ def test_only_mcp_entrypoint_is_exposed_and_requires_binding(tmp_path):
     script.write_text('from k3q_arxml.script.serve_mcp import main\nmain()\n', encoding='utf-8')
     result = subprocess.run([sys.executable, str(script), '--help'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == 0 and '--schema-version' not in result.stdout
-    (isolated / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').unlink()
+    (isolated / 'k3q_arxml/schemas/schame/autosar_4_2_2.py').unlink()
     result = subprocess.run([sys.executable, str(script)], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
     assert result.returncode != 0 and 'autosar_4_2_2' in result.stderr and not result.stdout
 
@@ -623,7 +623,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
     service, _, paths = project
     paths[0].write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd'), encoding='utf-8')
     root = Path(__file__).resolve().parents[1]
-    original_binding = (root / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes()
+    original_binding = (root / 'k3q_arxml/schemas/schame/autosar_4_2_2.py').read_bytes()
     # 从独立脚本启动，检查各版本服务的真实 stdio 行为及绑定文件保持不变。
     runtime = service.workspace / '服务 环境'
     copytree(root / 'k3q_arxml', runtime / 'k3q_arxml', ignore=ignore_patterns('__pycache__'))
@@ -687,5 +687,5 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert not closed.is_error
 
     asyncio.run(asyncio.wait_for(run(), timeout=180))
-    assert (runtime / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes() == original_binding
-    assert (root / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes() == original_binding
+    assert (runtime / 'k3q_arxml/schemas/schame/autosar_4_2_2.py').read_bytes() == original_binding
+    assert (root / 'k3q_arxml/schemas/schame/autosar_4_2_2.py').read_bytes() == original_binding
