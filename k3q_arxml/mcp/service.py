@@ -42,12 +42,15 @@ from .schemas import (
     McpSaveResult,
     McpTypeField,
     McpTypeInfo,
+    McpTypeSource,
     McpValidationResult,
 )
+from .source import SourceIndex, binding_dependencies, index_binding, index_xsd
 from .xml import NS, NAMESPACE, apply_patch, clone_file, fail, parse_object, read_xml, replace_object, select_element, semantic_xml, walk_named
 
 Offset = Annotated[int, Field(ge=0, description='分页起点，从 0 开始。')]
 Limit = Annotated[int, Field(ge=1, le=200, description='每页数量，最多 200。')]
+SourceLimit = Annotated[int, Field(ge=1, le=32_000, description='源码片段字符数，默认 16,000，最多 32,000。')]
 Revision = Annotated[int, Field(ge=0, description='最近查询得到的工程 revision；修改后需使用新值。')]
 
 
@@ -376,12 +379,11 @@ class ArxmlMcpService:
             next_offset=offset + limit if offset + limit < len(items) else None,
         )
 
-    def describe_type(self, xml_tag: str, python_type: str | None = None) -> McpTypeInfo:
-        """查询 XML 标签的字段、枚举与 compound choices。同名标签有多种绑定时，从 alternative_types 选取 python_type 进一步查询。"""
+    def _type_classes(self, xml_tag: str, *, include_roles: bool = False) -> list[type]:
         classes = [
             clazz for clazz in vars(self.binding).values() if isinstance(clazz, type) and is_dataclass(clazz) and getattr(getattr(clazz, 'Meta', None), 'name', None) == xml_tag
         ]
-        if not classes or python_type:
+        if not classes or include_roles:
             if self._type_roles is None:
                 self._type_roles = {}
                 pending = [value for value in vars(self.binding).values() if isinstance(value, type) and is_dataclass(value)]
@@ -405,7 +407,11 @@ class ArxmlMcpService:
                     for option in list(var.elements.values()) or [var]:
                         if option.local_name == xml_tag:
                             classes.extend(kind for kind in option.types if is_dataclass(kind))
-        classes = sorted(set(classes), key=lambda item: item.__qualname__)
+        return sorted(set(classes), key=lambda item: item.__qualname__)
+
+    def describe_type(self, xml_tag: str, python_type: str | None = None) -> McpTypeInfo:
+        """查询 XML 标签的字段、枚举与 compound choices。同名标签有多种绑定时，从 alternative_types 选取 python_type 进一步查询；原始定义用 get_type_source。"""
+        classes = self._type_classes(xml_tag, include_roles=bool(python_type))
         if not classes:
             fail('TYPE_NOT_FOUND', f'当前绑定中没有标签类型：{xml_tag}', '使用 XML 标签名，例如 SW-BASE-TYPE，而不是 Python 类名。')
         clazz = next((kind for kind in classes if kind.__qualname__ == python_type), None) if python_type else classes[0]
@@ -427,6 +433,38 @@ class ArxmlMcpService:
                     )
                 )
         return McpTypeInfo(xml_tag=xml_tag, python_type=clazz.__qualname__, fields=items, alternative_types=[kind.__qualname__ for kind in classes])
+
+    @cached_property
+    def _xsd_sources(self) -> SourceIndex:
+        return index_xsd(self._schema_path)
+
+    @cached_property
+    def _binding_sources(self) -> SourceIndex:
+        return index_binding(self.binding)
+
+    def get_type_source(
+        self,
+        name: Annotated[str, Field(min_length=1, max_length=512, description='XML 标签、XSD 定义名、Python 限定类型名，或返回的 definition_id。')],
+        source: Literal['xsd', 'binding'] = 'xsd',
+        offset: Offset = 0,
+        limit: SourceLimit = 16_000,
+        candidate_offset: Offset = 0,
+    ) -> McpTypeSource:
+        """只读查询当前版本的 XSD 或 Python 绑定定义，无需工程会话。
+
+        同名定义返回候选，每页 50 项；用 definition_id 作为 name 精确读取，用 next_candidate_offset 继续候选分页。
+        源码用 next_offset 继续字符分页，limit 最多 32,000。嵌套 XML 标签的 XSD 查询返回包含其声明的顶层定义。
+        related_definitions 列出最多 200 个关联定义，可按标识继续查询；不自动展开，不接受文件路径或版本切换。
+        """
+        if source not in {'xsd', 'binding'} or not name or len(name) > 512 or offset < 0 or not 1 <= limit <= 32_000 or candidate_offset < 0:
+            fail('INVALID_REQUEST', '源码查询参数无效。', 'source 使用 xsd 或 binding；分页起点不得为负，limit 为 1 到 32,000，name 长度为 1 到 512。')
+        index = self._xsd_sources if source == 'xsd' else self._binding_sources
+        matches = index.find(name)
+        if not matches and source == 'binding':
+            matches = sorted({kind.__qualname__ for kind in self._type_classes(name) if kind.__qualname__ in index.definitions})
+        if source == 'binding' and len(matches) == 1:
+            binding_dependencies(index, matches[0])
+        return index.page(name, matches, schema_version=self.binding.SCHEMA_VERSION, source=source, offset=offset, limit=limit, candidate_offset=candidate_offset)
 
     def rename_node(self, project_id: str, ref: str, new_name: str, revision: Revision, file_id: str | None = None) -> McpEditResult:
         """ref 必须为当前已存在的旧路径，new_name 仅传新 SHORT-NAME；同步已加载文件中指向它及后代的引用，成功后使用新 revision 和路径查询。"""
@@ -498,7 +536,11 @@ class ArxmlMcpService:
             )
             actual = read_xml(candidate.render())
         if semantic_xml(root) != semantic_xml(actual):
-            fail('LOSSY_ROUND_TRIP', '修改的 XML 在绑定往返后发生元素、文本、属性或顺序变化。', '检查 describe_type 和 XSD；不能提交当前绑定无法保留的 XML。')
+            fail(
+                'LOSSY_ROUND_TRIP',
+                '修改的 XML 在绑定往返后发生元素、文本、属性或顺序变化。',
+                '用 describe_type 查看摘要、get_type_source 查看 XSD 分组和绑定声明；不能提交当前绑定无法保留的 XML。',
+            )
         changed = self._publish(project, {key: candidate})
         return McpEditResult(project_id=project_id, revision=project.revision, affected_files=changed)
 

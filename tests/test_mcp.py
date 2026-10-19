@@ -643,8 +643,18 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
             async with ClientSession(read, write) as client:
                 await client.initialize()
                 listed = await client.list_tools()
-                assert len(listed.tools) == 13
+                assert len(listed.tools) == 14
                 assert all(tool.input_schema and tool.output_schema for tool in listed.tools)
+                source_tool = next(tool for tool in listed.tools if tool.name == 'get_type_source')
+                assert source_tool.annotations.read_only_hint
+                assert source_tool.input_schema['properties']['limit']['maximum'] == 32_000
+                source = await client.call_tool('get_type_source', {'name': 'complexType:SW-BASE-TYPE', 'limit': 100})
+                assert not source.is_error and source.structured_content['schema_version'] == schema_version
+                assert len(source.structured_content['content']) == 100 and source.structured_content['next_offset'] == 100
+                source = await client.call_tool('get_type_source', {'name': 'VariableDataPrototype.TypeTref', 'source': 'binding'})
+                assert not source.is_error and 'class TypeTref(Ref):' in source.structured_content['content']
+                missing = await client.call_tool('get_type_source', {'name': '../missing.xsd'})
+                assert missing.is_error and json.loads(missing.content[0].text)['code'] == 'SOURCE_NOT_FOUND'
                 skill = await client.call_tool('get_skill_path', {})
                 assert not skill.is_error, skill.content
                 skill_path = Path(skill.structured_content['result'])

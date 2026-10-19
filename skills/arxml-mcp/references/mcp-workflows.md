@@ -22,6 +22,26 @@
 
 预览默认 `diff_mode="file"`，包含将写入磁盘的全部差异。差异中混有大量数值或格式规范化变化时，可先用 `diff_mode="model"` 查看本次对象修改，再阅读 file 视图；`serialization_changed_files` 列出存在原文序列化差异的受影响文件。切换视图后重新从 `offset=0` 开始；同一视图分页保持 `diff_mode` 不变，凭据仍绑定当前 revision。恢复加载时或最近保存后的对象内容后，该文件自动清除 dirty，不再出现在预览和保存列表中。
 
+## 类型摘要和源码查询
+
+`describe_type(xml_tag="SW-BASE-TYPE")` 用于快速查看字段、属性和枚举。需要完整结构约束时使用 `get_type_source`，两者均无需工程会话，始终使用当前服务版本：
+
+```json
+{"name":"SW-BASE-TYPE","source":"xsd"}
+```
+
+同名 XSD 可能同时存在 group、complexType 等定义。工具返回 `candidates`，选择对应的 `definition_id` 作为下次查询的 name。也可直接用 `complexType:SW-BASE-TYPE`、`group:SW-BASE-TYPE` 等名称限定种类。例如 complexType 中引用了关联 group，就用 `related_definitions` 中的标识继续查，不自动递归展开整个依赖树。
+
+Python 绑定支持 XML 标签、限定类名及枚举名，例如：
+
+```json
+{"name":"VariableDataPrototype.TypeTref","source":"binding"}
+```
+
+`TYPE-TREF` 等嵌套 XML 标签的 XSD 查询返回包含声明的顶层定义，以保留 sequence / choice 上下文；绑定查询返回候选 Python 类型。`definition` 中的 `filepath`、`line` 用于核对来源，XSD 片段是原定义序列化后的 XML，Python 片段保留原类声明及装饰器。
+
+源码默认每段 16,000 字符，`limit` 最多 32,000；保持 name、source 不变，用返回的 `next_offset` 作为下一次 offset，直到 null。有歧义时不返回源码，候选每页 50 项，用 `next_candidate_offset` 作为下一次 candidate_offset，直到 null。`related_definitions` 最多列出 200 项，完整数量见 `total_related_definitions`；完整引用仍可在源码分页中读取。工具不接受文件路径，也不切换版本。
+
 ## 重命名及跨文件同步
 
 任务示例：将 `/Types/Speed` 改名为 `Velocity`，同步接口文件中的引用。

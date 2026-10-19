@@ -55,7 +55,7 @@ def parse_object(root: etree._Element, clazz: type) -> Any:
     try:
         return parser.parse(deepcopy(root), clazz)
     except (ParserError, ValueError, TypeError) as exc:
-        fail('BINDING_ERROR', str(exc), '使用 describe_type 检查标签、属性及枚举；未知内容不会被静默忽略。')
+        fail('BINDING_ERROR', str(exc), '使用 describe_type 检查标签、属性及枚举，get_type_source 查看 XSD 或绑定声明；未知内容不会被静默忽略。')
 
 
 def clone_value(value: Any) -> Any:

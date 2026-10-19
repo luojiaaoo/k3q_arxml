@@ -42,7 +42,7 @@ SenderReceiverInterface 中常见 DATA-ELEMENTS / VARIABLE-DATA-PROTOTYPE。数�
 
 ## 元素顺序与验证边界
 
-XML 元素顺序受目标 XSD 的 sequence / choice 约束。不要按字母顺序重排，也不要把 `describe_type` 的字段列表当成完整的插入位置规则。先读取同类有效节点或相关 XSD 片段，再选择 append 或相对插入；本 MCP 还会核对 xsdata 往返后的内容与顺序。[AUTOSAR XML Schema Production Rules，FO R20-11](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_TPS_XMLSchemaProductionRules.pdf) 描述了从模型到 XSD 的结构规则，具体顺序仍以目标版本 XSD 为准。
+XML 元素顺序受目标 XSD 的 sequence / choice 约束。不要按字母顺序重排，也不要把 `describe_type` 的字段列表当成完整的插入位置规则。先读取同类有效节点，或用 `get_type_source(name=标签或定义名, source="xsd")` 获取相关 XSD 片段及关联定义，再选择 append 或相对插入；本 MCP 还会核对 xsdata 往返后的内容与顺序。[AUTOSAR XML Schema Production Rules，FO R20-11](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_TPS_XMLSchemaProductionRules.pdf) 描述了从模型到 XSD 的结构规则，具体顺序仍以目标版本 XSD 为准。
 
 XSD 可以检查结构、部分值约束与枚举；它不证明当前文件集合包含全部目标，也不证明模型满足全部 AUTOSAR 业务约束或能被某个 DaVinci 版本正确导入。已有未解析引用可能指向未加载文件，报告时区分“当前集合未解析”与“完整工程错误”。
 

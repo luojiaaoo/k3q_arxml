@@ -20,7 +20,7 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 
 用户准备 Python 3.11 以上环境，安装当前源码构建包（默认包含 MCP 依赖），可直接通过 `k3q-arxml-mcp-00044` 启动，无需版本参数；4.2.2 对应 `k3q-arxml-mcp-4-2-2`。版本只由命令名称决定，不接受 --schema-version 参数。可用版本由包内实际 XSD 目录决定。
 
-客户端配置 `command="C:/arxml-env/Scripts/k3q-arxml-mcp-00044.exe"`、`args=[]`，`cwd` 指定业务模型目录。Linux/macOS 使用安装环境的 bin/k3q-arxml-mcp-00044。各版本命令复用的唯一入口源码位于 `k3q_arxml/script/serve_mcp.py`，通过无参数函数根据命令名称固定版本，校验后仅导入所选的 autosar_00044 模块。所有版本绑定与各自 XSD 同目录随包分发；不使用 ZIP、不替换绑定、不再启动子进程，也不提供旧的 autosar.py 兼容入口。
+客户端配置 `command="C:/arxml-env/Scripts/k3q-arxml-mcp-00044.exe"`、`args=[]`，`cwd` 指定业务模型目录。Linux/macOS 使用安装环境的 bin/k3q-arxml-mcp-00044。各版本命令复用的唯一入口源码位于 `k3q_arxml/script/serve_mcp.py`，通过无参数函数根据命令名称固定版本，校验后仅导入所选的 autosar_00044 模块。绑定平铺在 `schemas/schame/`，XSD 位于 `schemas/xsd/autosar_<版本>/`，均随包分发；不使用 ZIP、不替换绑定、不再启动子进程，也不提供旧的 autosar.py 兼容入口。
 
 这些版本命令尚未发布；已发布的 2.1.3 使用旧的 `python -m k3q_arxml mcp --schema-version 00044`。当前源码安装与客户端配置见仓库 README。
 
@@ -43,6 +43,7 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 - 先用 `find_nodes` 按标签、名称子串、路径前缀筛选，再用 `get_node` 查看准确路径对应的 XML。名称相似不表示对象相同。
 - 查询结果默认只有摘要。需要 XML 时设置 `include_xml=true`；存在 `next_offset` 时继续读取，不能把截断片段当成完整 XML。节点列表和引用列表也要按分页读取。
 - 不确定标签的字段或枚举时调用 `describe_type`。同名标签有多个 `alternative_types` 时，依据父字段的 `type_names` 指定 `python_type`，不能假定默认候选适用当前角色。
+- 需要确认元素顺序、choice / sequence、出现次数或绑定声明时，调用 `get_type_source(name=标签或定义名, source="xsd"或"binding")`，无需打开工程。多候选时用返回的 `definition_id` 作为 name 继续查询；源码和候选分别按 `next_offset`、`next_candidate_offset` 继续分页，关联定义按需读取，不能把截断片段当成完整规则。具体示例见 MCP 操作指南。
 - 重命名调用 `rename_node`，由服务同步指向该节点及后代的已加载引用。不要用字符串全局替换或 `patch_xml` 修改现有 SHORT-NAME。
 - 其他修改用 `patch_xml`。选择包含全部变化的最小节点范围，提交一批局部操作；跨节点关联修改的具体边界见操作指南。
 - 所有编辑使用最近返回的 `revision`；成功后重新查询新路径及相关引用。以实际返回值为准，不自行推算修订号。

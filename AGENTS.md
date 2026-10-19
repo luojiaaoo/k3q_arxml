@@ -156,6 +156,7 @@ MCP 是默认运行依赖，上面的 pytest 命令包含真实 stdio 客户端�
 | `get_node` | 读取摘要或分页 XML，也可以读取节点内一个 XPath 对应的元素 |
 | `find_references` | 查询入向引用，返回来源节点和相对 XPath |
 | `describe_type` | 查看当前绑定中 XML 标签的字段、枚举及 compound choices |
+| `get_type_source` | 无需工程会话，查询当前版本的 XSD 或 Python 绑定定义片段、候选及关联定义 |
 | `rename_node` | 重命名节点，自动同步指向它及后代的已加载引用 |
 | `patch_xml` | 在指定节点内提交一批属性、文本或结构修改 |
 | `validate_project` | 检查 XSD、重复对象路径、引用目标及 DEST |
@@ -179,6 +180,10 @@ MCP 是默认运行依赖，上面的 pytest 命令包含真实 stdio 客户端�
 文件恢复到加载时或最近保存后的对象内容时，`dirty` 自动清除，预览不再列出该文件，保存也不写回该文件。成功恢复原值仍会增加 `revision` 并使旧预览凭据失效；其他文件尚有修改时仍需处理。
 
 `describe_type` 也支持 SHORT-NAME、TYPE-TREF 等嵌套标签。同名标签可能对应不同类型，返回的 `alternative_types` 列出候选；可传入 `python_type` 精确选择，例如 `describe_type(xml_tag="TYPE-TREF", python_type="VariableDataPrototype.TypeTref")`。父标签描述中的 `type_names` 可用于确定选择。
+
+确认 XSD 元素顺序、choice / sequence、出现次数或 Python 绑定声明时使用 `get_type_source`。参数 `name` 接受 XML 标签、XSD 定义名、Python 限定类型名或返回的 `definition_id`，`source` 为 `xsd`（默认）或 `binding`。例如 `{"name":"complexType:SW-BASE-TYPE"}` 读取 XSD 类型，`{"name":"VariableDataPrototype.TypeTref","source":"binding"}` 读取嵌套 Python 类。工具只读当前固定版本，无需工程会话，不接收文件路径；源码索引首次查询时建立，不在启动时解析大型文件。
+
+同名 XSD group / complexType 或多角色标签返回 `candidates`，用选中的 `definition_id` 作为下一次 name。候选每页 50 项，通过 `candidate_offset=next_candidate_offset` 继续；有歧义时 content 为 null。选定定义后，源码默认每段 16,000 字符、最多 32,000，通过 `offset=next_offset` 继续，直至 null。`definition` 提供来源路径和行号；XSD 片段由原定义序列化，嵌套标签返回包含声明的顶层定义以保留分组上下文。`related_definitions` 最多列出 200 个关联标识，完整数量见 `total_related_definitions`，完整引用仍在源码中；可按标识继续查，不自动递归展开。查询范围包含当前主 XSD 和同目录 xml.xsd，不跟随外部 import/include。
 
 ### 局部 XML 修改
 

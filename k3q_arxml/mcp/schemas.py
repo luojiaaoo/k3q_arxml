@@ -113,7 +113,31 @@ class McpTypeInfo(McpModel):
     python_type: str
     fields: list[McpTypeField]
     alternative_types: list[str] = Field(default_factory=list)
-    note: str = '信息来自当前 xsdata 绑定；元素顺序和其他约束以本地 XSD 校验为准。'
+    note: str = '信息来自当前 xsdata 绑定；用 get_type_source 查看原始定义，元素顺序和其他约束以本地 XSD 校验为准。'
+
+
+class McpSourceLocation(McpModel):
+    definition_id: str
+    name: str
+    kind: str
+    filepath: str
+    line: int
+
+
+class McpTypeSource(McpModel):
+    schema_version: str
+    source: Literal['xsd', 'binding']
+    query: str
+    definition: McpSourceLocation | None = None
+    content: str | None = None
+    total_chars: int = 0
+    next_offset: int | None = None
+    candidates: list[McpSourceLocation] = Field(default_factory=list)
+    total_candidates: int = 0
+    next_candidate_offset: int | None = None
+    related_definitions: list[str] = Field(default_factory=list)
+    total_related_definitions: int = 0
+    note: str = '仅查询服务当前版本。XSD 片段由原定义序列化，line 对应原文件；关联定义不自动展开。'
 
 
 class McpEditResult(McpProjectResult):

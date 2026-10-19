@@ -348,4 +348,16 @@ print(target)
 
 源码仓库中的对应目录为 `skills/arxml-mcp`，复制其中的 `SKILL.md` 和全部 `references` 即可。Skill 的安装和 MCP 客户端连接需要分别配置。
 
+MCP 的 `describe_type` 用于查看字段和枚举摘要；需要确认 XML 顺序、分组约束或实际 Python 声明时，可直接调用 `get_type_source`，无需打开工程：
+
+```json
+{"name":"complexType:SW-BASE-TYPE","source":"xsd"}
+```
+
+```json
+{"name":"VariableDataPrototype.TypeTref","source":"binding"}
+```
+
+也可按 XML 标签查询，例如 `{"name":"TYPE-TREF","source":"binding"}`。存在多个定义时返回候选，选择 `definition_id` 作为下一次 name；源码通过 `next_offset` 分页读取，候选通过 `next_candidate_offset` 分页读取。返回结果包含当前版本、来源位置及关联定义标识，始终查询当前服务版本。
+
 工具说明、编辑流程、校验与恢复见 [AGENTS.md 的 MCP 说明](AGENTS.md#arxml-mcp-使用说明)。
