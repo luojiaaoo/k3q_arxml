@@ -61,11 +61,11 @@ uv run pytest
 
 ### 1. 选择版本绑定
 
-ARXML 的类型定义按 AUTOSAR 版本拆分在 `k3q_arxml.schemas.schame.autosar_<版本>` 模块中。查看文件头 `xsi:schemaLocation` 中的 XSD 文件名确定版本，例如 `AUTOSAR_00044.xsd` 对应 `autosar_00044`：
+ARXML 的类型定义按 AUTOSAR 版本拆分在 `k3q_arxml.schemas.autosar_<版本>` 模块中。查看文件头 `xsi:schemaLocation` 中的 XSD 文件名确定版本，例如 `AUTOSAR_00044.xsd` 对应 `autosar_00044`：
 
 ```python
-from k3q_arxml.schemas.schame import autosar_00044 as autosar  # AUTOSAR_00044.xsd
-# from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar  # AUTOSAR_4-2-2.xsd
+from k3q_arxml.schemas import autosar_00044 as autosar  # AUTOSAR_00044.xsd
+# from k3q_arxml.schemas import autosar_4_2_2 as autosar  # AUTOSAR_4-2-2.xsd
 ```
 
 可用版本与命令对照：
@@ -147,7 +147,7 @@ io.flush_to_file()   # 只回写标记为已修改的文件
 ```python
 from pathlib import Path
 from k3q_arxml import ArxmlTransaction, IOArxml
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
+from k3q_arxml.schemas import autosar_4_2_2 as autosar
 
 io = IOArxml(filepaths=list(Path('.').glob('**/*.arxml')), binding=autosar)
 for node in io.ar(clazz=autosar.ApplicationPrimitiveDataType):
@@ -161,7 +161,7 @@ for node in io.ar(clazz=autosar.ApplicationPrimitiveDataType):
 io.flush_to_file()
 ```
 
-批量场景的详细写法（多文件同步、事务、索引更新时机）见技能文档 [skills/k3q-arxml/references/scripting.md](skills/k3q-arxml/references/scripting.md)。
+批量场景的详细写法（多文件同步、事务、索引更新时机）见技能文档 [k3q_arxml/assets/skills/k3q-arxml/references/scripting.md](k3q_arxml/assets/skills/k3q-arxml/references/scripting.md)。
 
 ## MCP 配置
 
@@ -211,7 +211,7 @@ Linux / macOS 直接调用命令：
 
 | 工具 | 作用 |
 | --- | --- |
-| `get_skill_path` | 返回内置使用手册（`skills/k3q-arxml`）目录，操作 ARXML 前优先阅读 |
+| `get_skill_path` | 返回内置使用手册（`k3q_arxml/assets/skills/k3q-arxml`）目录，操作 ARXML 前优先阅读 |
 | `open_project` | 加载指定的 ARXML 文件集合，建立工程会话 |
 | `project_info` | 查看工程 revision、文件清单、未保存状态、加载诊断 |
 | `find_nodes` | 按 XML 标签 / 名称子串 / 路径前缀查找具名节点 |
@@ -230,9 +230,9 @@ Linux / macOS 直接调用命令：
 
 ## Skills
 
-仓库自带智能体技能 [skills/k3q-arxml/](skills/k3q-arxml/)，内容包括 MCP 用法、批量脚本写法以及 AUTOSAR 领域知识（持续补充）。MCP 服务的 `get_skill_path` 工具会返回该目录，供智能体按需阅读。
+仓库自带智能体技能 [k3q_arxml/assets/skills/k3q-arxml/](k3q_arxml/assets/skills/k3q-arxml/)，内容包括 MCP 用法、批量脚本写法以及 AUTOSAR 领域知识（持续补充）。MCP 服务的 `get_skill_path` 工具会返回该目录，供智能体按需阅读。
 
-可把 `skills/k3q-arxml` 复制到智能体的 skills 目录（如 `~/.claude/skills/`）自动加载，也可直接让智能体经 `get_skill_path` 读取。
+可把 `k3q_arxml/assets/skills/k3q-arxml` 复制到智能体的 skills 目录（如 `~/.claude/skills/`）自动加载，也可直接让智能体经 `get_skill_path` 读取。
 
 ## 开发
 
@@ -242,7 +242,7 @@ uv run pytest          # 运行测试
 uv run ruff check .    # 静态检查
 ```
 
-新增 schema 版本时把 XSD 放入 `k3q_arxml/schemas/xsd/autosar_<版本>/`，运行 `python k3q_arxml/cli.py --versions <版本>` 重新生成绑定（内部工具，需 xsdata）。
+新增 schema 版本时把 XSD 放入 `k3q_arxml/assets/xsd/autosar_<版本>/`，运行 `python k3q_arxml/cli.py --versions <版本>` 重新生成绑定（内部工具，需 xsdata）。
 
 维护者打包与 PyPI 发布流程见 [RELEASING.md](RELEASING.md)。
 

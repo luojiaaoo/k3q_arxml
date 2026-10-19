@@ -50,7 +50,7 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py311"
 line-length = 180
-extend-exclude = ["k3q_arxml/schemas/schame/autosar_*.py", "**/.codegen-*"]
+extend-exclude = ["k3q_arxml/schemas/autosar_*.py", "**/.codegen-*"]
 
 [tool.ruff.format]
 quote-style = "single"
@@ -58,13 +58,9 @@ quote-style = "single"
 [tool.hatch.build.targets.wheel]
 packages = ["k3q_arxml"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"skills" = "k3q_arxml/skills"
-
 [tool.hatch.build.targets.sdist]
 include = [
     "/k3q_arxml",
-    "/skills",
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",

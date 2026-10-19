@@ -12,9 +12,8 @@ from tempfile import TemporaryDirectory
 import click
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-SCHEMA_ROOT = PACKAGE_ROOT / 'schemas'
-XSD_ROOT = SCHEMA_ROOT / 'xsd'
-BINDING_ROOT = SCHEMA_ROOT / 'schame'
+XSD_ROOT = PACKAGE_ROOT / 'assets' / 'xsd'
+BINDING_ROOT = PACKAGE_ROOT / 'schemas'
 
 
 def discover_schemas(root: Path = XSD_ROOT) -> dict[str, Path]:
@@ -74,7 +73,7 @@ def _generate_binding(version: str, target: Path, *, stderr: bool = False) -> No
         raise click.ClickException(f'xsdata 生成失败（退出码 {exc.returncode}），当前绑定未修改。') from exc
     except OSError as exc:
         raise click.ClickException(f'无法生成绑定：{exc}') from exc
-    click.echo(f'已生成 {target}\n使用 from k3q_arxml.schemas.schame import {target.stem} 导入类型；请在新的 Python 进程中使用。', err=stderr)
+    click.echo(f'已生成 {target}\n使用 from k3q_arxml.schemas import {target.stem} 导入类型；请在新的 Python 进程中使用。', err=stderr)
 
 
 def build_binding(version: str, output: Path) -> Path:

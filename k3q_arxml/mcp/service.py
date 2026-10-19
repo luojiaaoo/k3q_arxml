@@ -119,11 +119,9 @@ class ArxmlMcpService:
         建议将整个 k3q-arxml 目录复制安装到智能体的 skills 目录，便于后续自动发现和加载；无需重新创建技能。
         本工具仅返回目录路径，不读取或解析手册内容。
         """
-        root = PACKAGE_ROOT / 'skills' / 'k3q-arxml'
-        if not root.is_dir():
-            root = PACKAGE_ROOT.parent / 'skills' / 'k3q-arxml'
+        root = PACKAGE_ROOT / 'assets' / 'skills' / 'k3q-arxml'
         if not (root / 'SKILL.md').is_file():
-            fail('SKILL_NOT_FOUND', '找不到内置 k3q-arxml Skill。', '检查安装包或源码仓库附带的 skills/k3q-arxml 目录是否完整。')
+            fail('SKILL_NOT_FOUND', '找不到内置 k3q-arxml Skill。', '检查安装包或源码仓库附带的 assets/skills/k3q-arxml 目录是否完整。')
         return str(root)
 
     def _project(self, project_id: str) -> McpProjectState:

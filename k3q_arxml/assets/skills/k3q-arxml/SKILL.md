@@ -51,7 +51,7 @@ Windows 下 MCP 必须经 `cmd /c` 启动，且 k3q-arxml 要预先装进**持�
 ```python
 from pathlib import Path
 from k3q_arxml import ArxmlTransaction, IOArxml
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
+from k3q_arxml.schemas import autosar_4_2_2 as autosar
 
 io = IOArxml(filepaths=list(Path('.').glob('**/*.arxml')), binding=autosar)
 for node in io.ar(clazz=autosar.ApplicationPrimitiveDataType):

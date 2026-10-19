@@ -13,11 +13,11 @@ Python 3.11+。脚本用任意解释器运行，只要能 `import k3q_arxml`。
 
 ## 选择版本绑定
 
-类型定义按 AUTOSAR 版本拆分在 `k3q_arxml.schemas.schame.autosar_<版本>`。看文件头 `xsi:schemaLocation` 的 XSD 文件名定版本：
+类型定义按 AUTOSAR 版本拆分在 `k3q_arxml.schemas.autosar_<版本>`。看文件头 `xsi:schemaLocation` 的 XSD 文件名定版本：
 
 ```python
-from k3q_arxml.schemas.schame import autosar_00044 as autosar   # AUTOSAR_00044.xsd
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar   # AUTOSAR_4-2-2.xsd
+from k3q_arxml.schemas import autosar_00044 as autosar   # AUTOSAR_00044.xsd
+from k3q_arxml.schemas import autosar_4_2_2 as autosar   # AUTOSAR_4-2-2.xsd
 ```
 
 可用：`autosar_00043` ~ `autosar_00052`、`autosar_4_2_2`。一个 `IOArxml` 只绑一个版本；混版本文件集分开处理。版本不匹配会告警但仍尝试解析，字段可能对不上，尽量匹配。
@@ -123,7 +123,7 @@ from pathlib import Path
 
 from k3q_arxml import ArxmlTransaction, IOArxml, logger, ref2str
 from k3q_arxml.log import configure_logging
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
+from k3q_arxml.schemas import autosar_4_2_2 as autosar
 
 
 def main() -> None:
@@ -165,4 +165,4 @@ if __name__ == '__main__':
 - **跨文件引用**：`ref_to_ref` 汇总所有已加载文件；引用目标可在其他文件甚至未加载文件中。只加载需要同步的那批文件。
 - **回写格式**：保存保留原缩进与根节点前注释，但绑定序列化可能产生数值/空白规范化差异，批量前后建议 `git diff` 抽查。
 - **先试跑**：破坏性批量操作先在副本目录或 `git stash` 可回退的环境跑一遍，确认 `render()` / diff 无误再 `flush_to_file()`。
-- **类型不确定时**：`from k3q_arxml.schemas.schame.autosar_4_2_2 import X` 查模块源码，或用 MCP 的 `describe_type` / `get_type_source` 查字段与 XSD 约束。
+- **类型不确定时**：`from k3q_arxml.schemas.autosar_4_2_2 import X` 查模块源码，或用 MCP 的 `describe_type` / `get_type_source` 查字段与 XSD 约束。

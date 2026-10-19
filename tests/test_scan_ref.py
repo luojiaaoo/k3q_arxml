@@ -59,7 +59,7 @@ class TestScanRef:
     @pytest.fixture(autouse=True)
     def setup_binding(self):
         # 用小型 dataclass 绑定验证遍历规则，显式替换测试使用的绑定模块。
-        binding = ModuleType('k3q_arxml.schemas.schame.autosar_4_2_2')
+        binding = ModuleType('k3q_arxml.schemas.autosar_4_2_2')
         binding.SCHEMA_VERSION = 'test'
         binding.Autosar = Container
         binding.Ref = Reference

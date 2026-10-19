@@ -8,7 +8,7 @@ k3q-arxml 的 MCP 服务按 AUTOSAR 版本拆分，一个命令绑定一个 sche
 
 | 工具 | 类型 | 作用 |
 | --- | --- | --- |
-| `get_skill_path` | 只读 | 返回内置手册（skills/k3q-arxml）目录，无需工程会话 |
+| `get_skill_path` | 只读 | 返回内置手册（assets/skills/k3q-arxml）目录，无需工程会话 |
 | `open_project` | 会话 | 加载明确指定的 ARXML 文件集合，返回 project_id 与 revision |
 | `project_info` | 只读 | 工程 revision、文件清单、未保存状态、加载诊断 |
 | `find_nodes` | 只读 | 按 XML 标签 / 名称子串 / 路径前缀查找具名节点（分页） |

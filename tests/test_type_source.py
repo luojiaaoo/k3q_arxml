@@ -9,7 +9,7 @@ from lxml import etree
 from k3q_arxml.mcp.service import ArxmlMcpService
 from k3q_arxml.mcp.source import index_binding, index_xsd
 from k3q_arxml.mcp.xml import McpServiceError
-from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
+from k3q_arxml.schemas import autosar_4_2_2 as autosar
 
 
 @pytest.fixture(scope='module')

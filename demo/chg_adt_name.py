@@ -14,7 +14,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from k3q_arxml import ArxmlTransaction, IOArxml, logger, str2ref
-    from k3q_arxml.schemas.schame import autosar_4_2_2 as autosar
+    from k3q_arxml.schemas import autosar_4_2_2 as autosar
     from k3q_arxml.log import configure_logging
 
     configure_logging('DEBUG')
