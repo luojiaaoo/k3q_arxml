@@ -57,13 +57,22 @@ Revision = Annotated[int, Field(ge=0, description='最近查询得到的工程 r
 def _path(ref: str, *, root: bool = False) -> tuple[str, ...]:
     if root and ref == '/':
         return ()
-    if not ref.startswith('/') or any(not item for item in ref.split('/')[1:]):
-        fail('INVALID_REF', f'不是有效的 AUTOSAR 绝对路径：{ref}', '使用 /Package/Type；文件根仅在支持文档编辑的工具中使用 /。')
+    if not ref.startswith('/') or any(not item for item in ref.split('/')[1:]) or re.search(r'[\x00-\x1f\x7f<>]', ref):
+        fail(
+            'INVALID_REF',
+            f'不是有效的 AUTOSAR 绝对路径：{ref!r}',
+            '使用由 SHORT-NAME 组成的 /Package/Type，不要混入 XML 标签、换行或控制字符；支持文件根的工具可使用 /。',
+        )
     return str2ref(ref)
 
 
 def _tag(obj) -> str:
     return getattr(getattr(type(obj), 'Meta', None), 'name', type(obj).__name__)
+
+
+def _validate_xml_tag(xml_tag: str) -> None:
+    if any(character.islower() for character in xml_tag):
+        fail('XML_TAG_CASE_MISMATCH', f'xml_tag 必须使用全大写 XML 标签，不能含小写字母：{xml_tag!r}', '按原始 XML 标签的精确拼写传入，例如 CAN-FRAME；不会自动转换大小写。')
 
 
 def _xpath(element: etree._Element, owner: etree._Element) -> str:
@@ -298,10 +307,29 @@ class ArxmlMcpService:
         )
 
     def find_nodes(
-        self, project_id: str, xml_tag: str | None = None, name: str | None = None, ref_prefix: str = '/', file_id: str | None = None, offset: Offset = 0, limit: Limit = 50
+        self,
+        project_id: str,
+        xml_tag: Annotated[
+            str | None, Field(description='必须使用全大写的精确 XML 标签，例如 CAN-FRAME；含任何小写字母直接报错，不自动转换大小写。省略时查询所有具名类型。')
+        ] = None,
+        name: str | None = None,
+        ref_prefix: Annotated[str, Field(description='由各级 SHORT-NAME 组成的路径前缀，例如 /SystemWeaver/Frames；匹配自身及所有后代，允许末尾 /。默认 / 表示不限制路径。')] = '/',
+        file_id: Annotated[str | None, Field(description='可选文件标识；省略时查询当前工程中全部已加载文件。')] = None,
+        offset: Offset = 0,
+        limit: Limit = 50,
     ) -> McpNodePage:
-        """按 XML 标签精确匹配、名称子串和路径前缀查找具名节点；不确定标签时先省略 xml_tag 查询，不能用 SW-C 等片段匹配。"""
+        """按 XML 标签精确匹配、名称子串和路径前缀查找具名节点。
+
+        查询完整对象索引，路径由各级 SHORT-NAME 组成。
+        例如 find_nodes(xml_tag="CAN-FRAME", ref_prefix="/SystemWeaver/Frames") 可直接找到包内的帧。
+        xml_tag 必须全大写，含小写字母直接报错；不确定标签时先省略，不能用 SW-C 等片段匹配。
+        """
+        if xml_tag is not None:
+            _validate_xml_tag(xml_tag)
         project = self._project(project_id)
+        # 前缀允许一个末尾分隔符；完整节点路径及内部空路径段仍按 _path 严格校验。
+        if ref_prefix.endswith('/') and not ref_prefix.endswith('//') and ref_prefix != '/':
+            ref_prefix = ref_prefix[:-1]
         prefix = _path(ref_prefix, root=True)
         if file_id and file_id not in project.paths:
             fail('FILE_NOT_FOUND', f'未知 file_id：{file_id}', '调用 project_info 获取文件标识。')
@@ -407,8 +435,13 @@ class ArxmlMcpService:
                             classes.extend(kind for kind in option.types if is_dataclass(kind))
         return sorted(set(classes), key=lambda item: item.__qualname__)
 
-    def describe_type(self, xml_tag: str, python_type: str | None = None) -> McpTypeInfo:
+    def describe_type(
+        self,
+        xml_tag: Annotated[str, Field(description='必须使用全大写的精确 XML 标签，例如 CAN-FRAME；含任何小写字母直接报错，不自动转换大小写。')],
+        python_type: str | None = None,
+    ) -> McpTypeInfo:
         """查询 XML 标签的字段、枚举与 compound choices。同名标签有多种绑定时，从 alternative_types 选取 python_type 进一步查询；原始定义用 get_type_source。"""
+        _validate_xml_tag(xml_tag)
         classes = self._type_classes(xml_tag, include_roles=bool(python_type))
         if not classes:
             fail('TYPE_NOT_FOUND', f'当前绑定中没有标签类型：{xml_tag}', '使用 XML 标签名，例如 SW-BASE-TYPE，而不是 Python 类名。')

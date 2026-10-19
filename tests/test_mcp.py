@@ -117,6 +117,72 @@ def test_queries_pagination_xml_references_and_types(project):
     assert service.validate_project(info.project_id).valid
 
 
+def test_find_nodes_through_nested_packages_and_elements(tmp_path):
+    frame = '<CAN-FRAME><SHORT-NAME>PDCU_SwFB_P</SHORT-NAME><FRAME-LENGTH>8</FRAME-LENGTH></CAN-FRAME>'
+    root = read_xml(document('SystemWeaver', ''))
+    package = root.find('ar:AR-PACKAGES/ar:AR-PACKAGE', {'ar': NAMESPACE})
+    package.remove(package.find('ar:ELEMENTS', {'ar': NAMESPACE}))
+    packages = etree.SubElement(package, f'{{{NAMESPACE}}}AR-PACKAGES')
+    # A similarly named sibling must not match the Frames path segment.
+    for name in ('Frames', 'FramesOther'):
+        child = read_xml(document(name, frame)).find('ar:AR-PACKAGES/ar:AR-PACKAGE', {'ar': NAMESPACE})
+        packages.append(child)
+    network = tmp_path / 'network.arxml'
+    network.write_bytes(etree.tostring(root))
+    other = tmp_path / 'other.arxml'
+    other.write_text(document('Other', frame), encoding='utf-8')
+    service = ArxmlMcpService(tmp_path, binding=autosar)
+    info = service.open_project([network.name, other.name])
+    assert not info.diagnostics
+
+    expected_ref = '/SystemWeaver/Frames/PDCU_SwFB_P'
+    assert service.find_nodes(info.project_id, xml_tag='CAN-FRAME').total == 3
+    assert service.find_nodes(info.project_id, xml_tag='CAN-FRAME', file_id='f1').total == 2
+    for prefix in ('/SystemWeaver/Frames', '/SystemWeaver/Frames/'):
+        frames = service.find_nodes(info.project_id, xml_tag='CAN-FRAME', ref_prefix=prefix)
+        assert frames.total == 1
+        assert [(item.file_id, item.ref) for item in frames.items] == [('f1', expected_ref)]
+        nodes = service.find_nodes(info.project_id, ref_prefix=prefix)
+        assert [item.ref for item in nodes.items] == ['/SystemWeaver/Frames', expected_ref]
+
+    assert service.get_node(info.project_id, expected_ref).node.xml_tag == 'CAN-FRAME'
+    xml = service.get_node(info.project_id, '/SystemWeaver/Frames', xpath='./ar:ELEMENTS/ar:CAN-FRAME').xml
+    assert etree.QName(read_xml(xml)).localname == 'CAN-FRAME'
+    assert service.find_nodes(info.project_id, ref_prefix='/SystemWeaver/Frames/ELEMENTS').total == 0
+    for xml_tag in ('CAN-Frame', 'can-frame'):
+        with pytest.raises(McpServiceError) as error:
+            service.find_nodes(info.project_id, xml_tag=xml_tag)
+        assert error.value.error.code == 'XML_TAG_CASE_MISMATCH'
+        assert '全大写' in error.value.error.message
+    # Abstract or absent tags are still legitimate queries with no matches.
+    assert service.find_nodes(info.project_id, xml_tag='PDU').total == 0
+
+
+@pytest.mark.parametrize('xml_tag', ['CAN-Frame', 'can-frame', 'No-Such-Tag'])
+def test_xml_tag_lowercase_is_rejected_even_without_matching_nodes(project, xml_tag):
+    service, info, _ = project
+    for query in (
+        lambda: service.find_nodes(info.project_id, xml_tag=xml_tag),
+        lambda: service.find_nodes(info.project_id, xml_tag=xml_tag, ref_prefix='/Missing'),
+        lambda: service.describe_type(xml_tag),
+    ):
+        with pytest.raises(McpServiceError) as error:
+            query()
+        assert error.value.error.code == 'XML_TAG_CASE_MISMATCH'
+        assert '全大写' in error.value.error.message
+
+
+@pytest.mark.parametrize(
+    'prefix',
+    ['', 'SystemWeaver/Frames', '//', '/SystemWeaver//Frames', '/SystemWeaver/Frames//', '/\n</ref_prefix>', '/SystemWeaver/Frames\n</ref_prefix>', '/Types\x00', '/Types<'],
+)
+def test_find_nodes_rejects_invalid_prefixes(project, prefix):
+    service, info, _ = project
+    with pytest.raises(McpServiceError) as error:
+        service.find_nodes(info.project_id, ref_prefix=prefix)
+    assert error.value.error.code == 'INVALID_REF'
+
+
 @pytest.mark.parametrize(('ref', 'name', 'new_target'), [('/Types/Speed', 'Velocity', '/Types/Velocity'), ('/Types', 'NewTypes', '/NewTypes/Speed')])
 def test_rename_updates_cross_file_references_and_saves_with_backup(project, ref, name, new_target):
     service, info, paths = project
@@ -630,6 +696,15 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
     script = runtime / f'k3q-arxml-mcp-{schema_version.replace(chr(46), chr(45))}.py'
     script.write_text('from k3q_arxml.script.serve_mcp import main\nmain()\n', encoding='utf-8')
     arguments = [str(script)]
+    # Reproduce CAN-FRAME lookup through the actual protocol, including nested XML containers.
+    network = service.workspace / 'network.arxml'
+    network_root = read_xml(document('SystemWeaver', ''))
+    packages = network_root.find(f'{{{NAMESPACE}}}AR-PACKAGES/{{{NAMESPACE}}}AR-PACKAGE/{{{NAMESPACE}}}ELEMENTS')
+    packages.tag = f'{{{NAMESPACE}}}AR-PACKAGES'
+    frame = '<CAN-FRAME><SHORT-NAME>PDCU_SwFB_P</SHORT-NAME><FRAME-LENGTH>8</FRAME-LENGTH></CAN-FRAME>'
+    packages.append(read_xml(document('Frames', frame)).find(f'{{{NAMESPACE}}}AR-PACKAGES/{{{NAMESPACE}}}AR-PACKAGE'))
+    network_root.set('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation', f'{NAMESPACE} AUTOSAR_{schema_version.replace(".", "-")}.xsd')
+    network.write_bytes(etree.tostring(network_root))
     parameters = StdioServerParameters(
         command=sys.executable,
         args=arguments,
@@ -661,12 +736,28 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert skill_path == runtime / 'k3q_arxml/assets/skills/k3q-arxml'
                 outside = await client.call_tool('open_project', {'filepaths': [str(root / 'tests/ThrottlePositionControlComposition.arxml')]})
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
-                opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
+                opened = await client.call_tool('open_project', {'filepaths': [path.name for path in [*paths, network]]})
                 assert not opened.is_error, opened.content
                 assert opened.structured_content['schema_version'] == schema_version
                 mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
                 assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
                 project_id = opened.structured_content['project_id']
+                for query in ({'xml_tag': 'CAN-FRAME'}, {'xml_tag': 'CAN-FRAME', 'ref_prefix': '/SystemWeaver/Frames'}):
+                    frames = await client.call_tool('find_nodes', {'project_id': project_id, **query})
+                    assert not frames.is_error
+                    assert frames.structured_content['total'] == 1
+                    assert frames.structured_content['items'][0]['ref'] == '/SystemWeaver/Frames/PDCU_SwFB_P'
+                    assert frames.structured_content['items'][0]['file_id'] == 'f3'
+                    assert json.loads(frames.content[0].text) == frames.structured_content
+                for query, code in (
+                    ({'xml_tag': 'CAN-Frame'}, 'XML_TAG_CASE_MISMATCH'),
+                    ({'xml_tag': 'No-Such-Tag', 'ref_prefix': '/Missing'}, 'XML_TAG_CASE_MISMATCH'),
+                    ({'ref_prefix': '/\n</ref_prefix>'}, 'INVALID_REF'),
+                    ({'ref_prefix': '/SystemWeaver/Frames\n</ref_prefix>'}, 'INVALID_REF'),
+                ):
+                    invalid = await client.call_tool('find_nodes', {'project_id': project_id, **query})
+                    assert invalid.is_error
+                    assert json.loads(invalid.content[0].text)['code'] == code
                 found = await client.call_tool('find_nodes', {'project_id': project_id, 'name': 'Speed'})
                 assert found.structured_content['total'] == 1
                 error = await client.call_tool('get_node', {'project_id': project_id, 'ref': '/Missing'})

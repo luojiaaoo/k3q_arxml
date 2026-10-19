@@ -24,6 +24,7 @@ k3q-arxml 提供两条互补的 ARXML 处理路径，先判断任务形态再选
 
 - **版本先行**：看文件头 `xsi:schemaLocation` 中的 XSD 文件名定版本，如 `AUTOSAR_00044.xsd` → 绑定 `autosar_00044`、MCP 命令 `k3q-arxml-mcp-00044`；`AUTOSAR_4-2-2.xsd` → `autosar_4_2_2` / `k3q-arxml-mcp-4-2-2`。版本不符只告警不阻断，但类型字段可能对不上，尽量匹配。
 - **路径即元组**：AUTOSAR 路径 `/Package/Type` 与元组 `('Package', 'Type')` 用 `str2ref` / `ref2str` 互转。只支持绝对路径引用，不支持相对引用。
+- **标签必须全大写**：MCP 的 `find_nodes`、`describe_type` 参数 `xml_tag` 必须使用精确的全大写 XML 标签，如 `CAN-FRAME`。传 `CAN-Frame`、`can-frame` 等含小写字母的值直接报 `XML_TAG_CASE_MISMATCH`，不自动转换大小写；此规则与查询范围内是否存在该类型无关。`SHORT-NAME`、对象路径和 `python_type` 保持原有大小写。
 - **重命名必须同步引用**：改 SHORT-NAME 后，所有指向旧路径的引用都要改。MCP 的 `rename_node` 自动同步已加载文件；脚本里用 `ref_to_ref` 收集后逐个改。
 - **先预览后落盘**：MCP 保存前必须 `preview_changes` 拿 `preview_token`；脚本里确认无误再 `flush_to_file()`。破坏性批量操作前先备份或在副本上试跑。
 - **引用检查范围有限**：反向引用索引只覆盖已加载文件 / 已解析的文件集合。跨工程引用不会被发现，重要重命名前自行确认还有哪些外部文件可能引用。
