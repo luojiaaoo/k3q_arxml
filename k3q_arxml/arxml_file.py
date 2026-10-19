@@ -3,7 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import Field, fields, is_dataclass
 from functools import partial
-from typing import Any, cast
+from types import ModuleType
+from typing import Any, Generic, Protocol, Self, TypeVar, cast, overload
 
 from lxml import etree
 from xsdata.formats.dataclass.context import XmlContext
@@ -15,14 +16,24 @@ from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .log import logger
-from .schemas import ArxmlFormat, ArxmlHeader, ArxmlIndex, ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
+from .schemas import ArxmlFormat, ArxmlHeader, ArxmlIndex, ArxmlNamedNode, ArxmlReference, ArxmlRefNode, Filepath, RefT, T, TupleRef
 
-try:
-    from .autosar import SCHEMA_VERSION, Autosar
-except ModuleNotFoundError as exc:
-    if exc.name != f'{__package__}.autosar':
-        raise
-    raise RuntimeError('缺少 AUTOSAR 绑定，请恢复项目自带的 k3q_arxml/autosar.py（默认 4.2.2）后重试。') from exc
+AutosarT = TypeVar('AutosarT')
+AutosarT_co = TypeVar('AutosarT_co', covariant=True)
+RefT_co = TypeVar('RefT_co', bound=ArxmlReference, covariant=True)
+
+
+class _AutosarBinding(Protocol[AutosarT_co, RefT_co]):
+    """从实际绑定模块推导根对象和引用类型，不依赖具体版本。"""
+
+    @property
+    def SCHEMA_VERSION(self) -> str: ...
+
+    @property
+    def Autosar(self) -> type[AutosarT_co]: ...
+
+    @property
+    def Ref(self) -> type[RefT_co]: ...
 
 
 def get_xml_metadata(schema_version: str) -> dict[str, str]:
@@ -41,19 +52,26 @@ def ref2str(ref: TupleRef) -> str:
     return '/' + '/'.join(ref)
 
 
-class ArxmlFile:
+class ArxmlFile(Generic[AutosarT, RefT]):
     """负责单文件加载、索引初始化、节点增量更新和回写。"""
 
-    def __init__(self):
+    @overload
+    def __init__(self, *, binding: _AutosarBinding[AutosarT, RefT]) -> None: ...
+
+    @overload
+    def __init__(self: ArxmlFile[Any, Any], *, binding: ModuleType) -> None: ...
+
+    def __init__(self, *, binding: _AutosarBinding[AutosarT, RefT] | ModuleType) -> None:
+        self.binding = cast(_AutosarBinding[AutosarT, RefT], binding)
         self.filepath: Filepath | None = None  # 解析或创建文件后保存为绝对路径。
-        self.parse_schema_version = SCHEMA_VERSION  # 当前绑定用于解析的 AUTOSAR 版本。
+        self.parse_schema_version: str = self.binding.SCHEMA_VERSION  # 本文件使用的 AUTOSAR 版本。
         self.header: ArxmlHeader | None = None  # XML 根节点的 namespace 与 schema 声明。
         self.format: ArxmlFormat | None = None  # XML 回写的格式设置。
-        self.index: ArxmlIndex | None = None  # 当前文件的对象、反向引用和 UUID 索引。
+        self.index: ArxmlIndex[RefT] | None = None  # 当前文件的对象、反向引用和 UUID 索引。
         self._dirty = False  # 已标记但尚未保存的修改。
         # 字段定义按类型缓存，供本实例的多次扫描复用；不缓存对象的实际值。
         self._field_cache: dict[type, tuple[Field[Any], ...]] = {}
-        self.root: Autosar  # 当前文件对应的 AUTOSAR 根对象。
+        self.root: AutosarT  # 当前文件对应的 AUTOSAR 根对象。
 
     def read_file_metadata(self) -> tuple[ArxmlFormat, ArxmlHeader]:
         """读取 XML header、缩进格式和根节点前的注释。"""
@@ -88,7 +106,7 @@ class ArxmlFile:
         header = ArxmlHeader(xml_namespace=namespace, xml_schema_location=schema_location)
         return format_info, header
 
-    def parse_file(self, filepath: Filepath) -> ArxmlFile:
+    def parse_file(self, filepath: Filepath) -> Self:
         """加载 ARXML 文件，并全量扫描一次以建立初始索引。"""
         self.filepath = filepath.resolve()
         logger.info('>> parsing {}', self.filepath)
@@ -103,19 +121,19 @@ class ArxmlFile:
 
         parser = XmlParser(context=XmlContext(), config=ParserConfig(), handler=LxmlEventHandler)
         ns_map = {}
-        self.root = parser.parse(str(self.filepath), Autosar, ns_map=ns_map)
+        self.root = parser.parse(str(self.filepath), self.binding.Autosar, ns_map=ns_map)
         self.scan_ref()
         return self
 
     def parse_autosar(
         self,
         filepath: Filepath,
-        autosar_obj: Autosar,
+        autosar_obj: AutosarT,
         xml_namespace: str | None = None,
         xml_schema_location: str | None = None,
         indent: str = ' ' * 4,
         leading_comments: str = '',
-    ) -> ArxmlFile:
+    ) -> Self:
         """使用 AUTOSAR 根对象初始化文件信息，并全量建立索引。"""
         if xml_namespace is None or xml_schema_location is None:
             metadata = get_xml_metadata(self.parse_schema_version)
@@ -164,7 +182,7 @@ class ArxmlFile:
         for ref in scanned.objects:
             if ref in self.index.objects and not in_old_subtree(ref):
                 raise ValueError(f'{self.filepath}: 路径 {ref2str(ref)} 与其他分支冲突')
-        merged = ArxmlIndex()
+        merged: ArxmlIndex[RefT] = ArxmlIndex()
         for ref, current in self.index.objects.items():
             if ref == old_ref:
                 merged.objects.update(scanned.objects)
@@ -272,7 +290,7 @@ class ArxmlFile:
         obj: Any,
         parent_ref: TupleRef = (),
         parent_obj: Any = None,
-    ) -> ArxmlIndex:
+    ) -> ArxmlIndex[RefT]:
         """遍历 dataclass 声明字段，将三组索引统一作为 ArxmlIndex 返回。
 
         只扫描传入 obj 的子树并返回结果，不直接修改文件索引。scan_ref() 传入 root 做全量初始化，
@@ -286,11 +304,11 @@ class ArxmlFile:
 
         按 XML 树的包含关系递归，不做循环检测。使用 Python 默认递归深度限制。
         """
-        from .autosar import Ref
+        Ref = self.binding.Ref
 
         assert self.filepath is not None
 
-        index = ArxmlIndex()
+        index: ArxmlIndex[RefT] = ArxmlIndex()
 
         def _edited_xml_obj(xml_obj: T, refresh_index: bool = True) -> T:
             """标记文件已修改并返回原对象；默认刷新最近具名节点的索引。
@@ -327,7 +345,7 @@ class ArxmlFile:
                 index.uuids[uuid] = named_ref
             return named_ref
 
-        def _add_reference(node: Ref, ref: TupleRef) -> None:
+        def _add_reference(node: RefT, ref: TupleRef) -> None:
             """将一处 XML 引用加入按目标路径组织的反向引用索引。"""
 
             value = node.value

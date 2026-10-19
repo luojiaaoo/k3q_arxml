@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import wraps
 from inspect import signature
 from pathlib import Path
+from types import ModuleType
 from typing import get_type_hints
 
 from mcp.server import MCPServer
@@ -42,8 +43,8 @@ def _tool(service: ArxmlMcpService, method):
     return execute
 
 
-def create_server(workspace: Path) -> MCPServer:
-    service = ArxmlMcpService(workspace)
+def create_server(workspace: Path, *, binding: ModuleType) -> MCPServer:
+    service = ArxmlMcpService(workspace, binding=binding)
     server = MCPServer(
         'k3q_arxml',
         instructions='处理启动目录内的 ARXML：先 open_project 加载文件集合；查询目标与引用；编辑使用最新 revision；预览修改后显式调用 save_changes。引用检查仅覆盖已加载文件。',

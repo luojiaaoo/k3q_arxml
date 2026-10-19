@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pprint
 from collections.abc import Iterable
+from types import ModuleType
 from typing import Any
 
 from .arxml_file import ArxmlFile, ref2str
@@ -11,7 +12,8 @@ from .schemas import ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
 class IOArxml:
     """管理多个 ArxmlFile，汇总文件内的查询结果。"""
 
-    def __init__(self, filepaths: Iterable[Filepath]):
+    def __init__(self, filepaths: Iterable[Filepath], *, binding: ModuleType):
+        self.binding = binding
         self.files: dict[Filepath, ArxmlFile] = {}
         for filepath in filepaths:
             filepath = filepath.resolve()
@@ -63,7 +65,7 @@ class IOArxml:
             raise IsADirectoryError(f'{filepath} 是目录，不能作为 ARXML 文件加载')
         if not filepath.is_file():
             raise ValueError(f'{filepath} 不是普通文件')
-        file = ArxmlFile().parse_file(filepath)
+        file = ArxmlFile(binding=self.binding).parse_file(filepath)
         for ref in file.index.objects:
             for loaded_file in self.files.values():
                 if ref in loaded_file.index.objects:

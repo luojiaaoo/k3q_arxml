@@ -16,9 +16,9 @@ class TestArxml:
     @pytest.fixture(autouse=True)
     def setup_arxml(self, tmp_path):
         try:
-            from k3q_arxml import autosar
+            from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
         except ImportError:
-            pytest.skip('请先运行 uv run -m k3q_arxml generate 4.2.2')
+            pytest.skip('缺少预生成的 4.2.2 绑定，请维护者运行 k3q_arxml/cli.py --versions 4.2.2')
         if autosar.SCHEMA_VERSION != '4.2.2':
             pytest.skip('ARXML 样例测试需要生成 4.2.2 绑定')
         self.autosar = autosar
@@ -41,7 +41,7 @@ class TestArxml:
 
     def test_native_module_and_round_trip_preserve_objects_and_references(self):
         assert isinstance(self.autosar, ModuleType)
-        original = IOArxml([self.path])
+        original = IOArxml([self.path], binding=self.autosar)
         file = original.files[self.path]
         paths = set(file.index.objects)
         references = {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in file.index.references.items()}
@@ -50,14 +50,14 @@ class TestArxml:
         assert file.parse_schema_version == '4.2.2'
         assert file.header.file_schema_version == '4.2.2'
         original.flush_to_file()
-        reloaded = IOArxml([self.path]).files[self.path]
+        reloaded = IOArxml([self.path], binding=self.autosar).files[self.path]
         assert set(reloaded.index.objects) == paths
         assert {ref: [(row.xml_obj.value, row.owner_ref) for row in rows] for ref, rows in reloaded.index.references.items()} == references
         assert reloaded.root == file.root
         assert file.header.xml_schema_location.endswith('AUTOSAR_4-2-2.xsd')
 
     def test_parse_sets_parent_on_generated_dataclasses(self):
-        file = ArxmlFile().parse_file(self.path)
+        file = ArxmlFile(binding=self.autosar).parse_file(self.path)
         root = file.root
         packages = root.ar_packages
         package = packages.ar_package[0]
@@ -72,14 +72,14 @@ class TestArxml:
         assert callable(package.short_name.edited)
 
         file.save()
-        reloaded = ArxmlFile().parse_file(self.path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(self.path)
         assert reloaded.root.ar_packages.arxml_parent is reloaded.root
 
     def test_update_node_sets_parent_on_new_generated_dataclasses(self):
         autosar = self.autosar
         package = autosar.ArPackage(short_name=autosar.Identifier(value='Package'), elements=autosar.ArPackage.Elements(choice=[]))
         root = autosar.Autosar(ar_packages=autosar.Autosar.ArPackages(ar_package=[package]))
-        file = ArxmlFile().parse_autosar(self.path, root)
+        file = ArxmlFile(binding=self.autosar).parse_autosar(self.path, root)
 
         gateway = autosar.Gateway(short_name=autosar.Identifier(value='Gateway'))
         package.elements.choice.append(gateway)
@@ -94,7 +94,7 @@ class TestArxml:
         assert file.ref(('Package', 'Gateway')).xml_obj is gateway
 
     def test_named_node_edit_refreshes_indexes_and_content(self):
-        document = IOArxml([self.path])
+        document = IOArxml([self.path], binding=self.autosar)
         file = document.files[self.path]
         node = file.ar(self.autosar.SwBaseType)[0]
         ref = node.ref
@@ -123,7 +123,7 @@ class TestArxml:
         assert file.index.uuids['second-uuid'] == updated.ref
 
     def test_edit_without_refresh_saves_plain_attribute_and_clears_dirty(self):
-        document = IOArxml([self.path])
+        document = IOArxml([self.path], binding=self.autosar)
         file = document.files[self.path]
         node = file.ar(self.autosar.SwBaseType)[0]
         previous = file.index
@@ -138,11 +138,11 @@ class TestArxml:
             document.flush_to_file()
             save.assert_called_once_with()
 
-        reloaded = ArxmlFile().parse_file(self.path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(self.path)
         assert reloaded.ref(node.ref).xml_obj.s == 'updated-checksum'
 
     def test_scan_and_edit_do_not_serialize_content(self):
-        document = IOArxml([self.path])
+        document = IOArxml([self.path], binding=self.autosar)
         file = document.files[self.path]
         with patch('k3q_arxml.schemas.XmlSerializer', side_effect=RuntimeError('unexpected serialization')):
             file.scan_ref()
@@ -154,7 +154,7 @@ class TestArxml:
     def test_transaction_updates_and_saves_multiple_files_with_individual_refresh_flags(self):
         other_path = self.path.with_name('other.arxml')
         self._copy_with_distinct_paths(other_path)
-        document = IOArxml([self.path, other_path])
+        document = IOArxml([self.path, other_path], binding=self.autosar)
         first = document.files[self.path]
         second = document.files[other_path]
         indexed = first.ar(self.autosar.SwBaseType)[0]
@@ -176,15 +176,15 @@ class TestArxml:
         assert {path: path.read_bytes() for path in document.files} == original_bytes
         document.flush_to_file()
 
-        assert ArxmlFile().parse_file(self.path).ref(indexed.ref).xml_obj.uuid == 'transaction-uuid'
-        assert ArxmlFile().parse_file(other_path).ref(plain.ref).xml_obj.s == 'transaction-checksum'
+        assert ArxmlFile(binding=self.autosar).parse_file(self.path).ref(indexed.ref).xml_obj.uuid == 'transaction-uuid'
+        assert ArxmlFile(binding=self.autosar).parse_file(other_path).ref(plain.ref).xml_obj.s == 'transaction-checksum'
 
     def test_swc_arxml_can_be_parsed(self):
         fixture = Path(__file__).resolve().parents[1] / 'test' / 'SWC.arxml'
         swc_path = self.directory / 'SWC.arxml'
         copy2(fixture, swc_path)
 
-        file = ArxmlFile().parse_file(swc_path)
+        file = ArxmlFile(binding=self.autosar).parse_file(swc_path)
 
         assert file.header.file_schema_version == '4.2.2'
         assert file.index.objects
@@ -197,7 +197,7 @@ class TestArxml:
             Path('nested').mkdir()
             aliases = [self.path, Path('sample.arxml'), Path('./sample.arxml'), Path('nested/../sample.arxml'), Path(self.path.as_posix())]
             with patch.object(ArxmlFile, 'parse_file', autospec=True, side_effect=ArxmlFile.parse_file) as parse:
-                document = IOArxml(iter(aliases))
+                document = IOArxml(iter(aliases), binding=self.autosar)
             assert parse.call_count == 1
             assert list(document.files) == [self.path]
             file = document.files[self.path]
@@ -213,12 +213,12 @@ class TestArxml:
 
         # 离开原工作目录后仍写入原文件，且没有另一份旧对象覆盖本次修改。
         document.flush_to_file()
-        assert 'saved-once' in ArxmlFile().parse_file(self.path).index.uuids
+        assert 'saved-once' in ArxmlFile(binding=self.autosar).parse_file(self.path).index.uuids
 
     def test_flush_saves_only_updated_files_and_retries_failed_save(self):
         other_path = self.path.with_name('other.arxml')
         self._copy_with_distinct_paths(other_path)
-        document = IOArxml([self.path, other_path])
+        document = IOArxml([self.path, other_path], binding=self.autosar)
         first = document.files[self.path]
         second = document.files[other_path]
 
@@ -244,19 +244,19 @@ class TestArxml:
             assert first_save.call_count == 1
             second_save.assert_called_once_with()
 
-        assert 'first-edited' in ArxmlFile().parse_file(self.path).index.uuids
-        assert 'second-edited' in ArxmlFile().parse_file(other_path).index.uuids
+        assert 'first-edited' in ArxmlFile(binding=self.autosar).parse_file(self.path).index.uuids
+        assert 'second-edited' in ArxmlFile(binding=self.autosar).parse_file(other_path).index.uuids
 
     def test_standalone_file_keeps_resolved_path(self):
         with chdir(self.directory):
-            file = ArxmlFile().parse_file(Path('sample.arxml'))
+            file = ArxmlFile(binding=self.autosar).parse_file(Path('sample.arxml'))
         assert file.filepath == self.path
         file.format.leading_comments = '<!-- absolute path -->'
         file.save()
-        assert ArxmlFile().parse_file(self.path).format.leading_comments == '<!-- absolute path -->'
+        assert ArxmlFile(binding=self.autosar).parse_file(self.path).format.leading_comments == '<!-- absolute path -->'
 
     def test_append_resolves_paths_and_rejects_loaded_aliases(self):
-        document = IOArxml([self.path])
+        document = IOArxml([self.path], binding=self.autosar)
         original = document.files[self.path]
         original.format.leading_comments = '<!-- unsaved edit -->'
         other_path = self.path.with_name('other.arxml')
@@ -282,7 +282,7 @@ class TestArxml:
         package = autosar.ArPackage(short_name=autosar.Identifier(value='Package'), elements=autosar.ArPackage.Elements(choice=[gateway]))
         root = autosar.Autosar(ar_packages=autosar.Autosar.ArPackages(ar_package=[package]))
 
-        file = ArxmlFile().parse_autosar(self.path, root)
+        file = ArxmlFile(binding=self.autosar).parse_autosar(self.path, root)
 
         assert source.arxml_parent is mapping
         assert target.arxml_parent is mapping.target_i_pdu
@@ -296,7 +296,7 @@ class TestArxml:
         assert rows[1].xml_obj.edited() is rows[1].xml_obj
         file.save()
 
-        reloaded = ArxmlFile().parse_file(self.path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(self.path)
         row = reloaded.index.references[('Network', 'NewTrigger')][0]
         assert isinstance(row, ArxmlNode)
         assert not isinstance(row, ArxmlNamedNode)
@@ -309,18 +309,18 @@ class TestArxml:
     def test_shared_paths_reject_second_file_without_changing_loaded_files(self):
         other_path = self.path.with_name('other.arxml')
         copy2(self.path, other_path)
-        document = IOArxml([self.path])
+        document = IOArxml([self.path], binding=self.autosar)
         first = document.files[self.path]
         with pytest.raises(ValueError, match='/AUTOSAR_Platform'):
             document.append(other_path)
         assert document.files == {self.path: first}
         with pytest.raises(ValueError, match='/AUTOSAR_Platform'):
-            IOArxml([self.path, other_path])
+            IOArxml([self.path, other_path], binding=self.autosar)
 
     def test_io_queries_observe_node_edit_in_its_owning_file(self):
         other_path = self.path.with_name('other.arxml')
         self._copy_with_distinct_paths(other_path)
-        document = IOArxml([self.path, other_path])
+        document = IOArxml([self.path, other_path], binding=self.autosar)
         node = document.files[self.path].ar(self.autosar.SwBaseType)[0]
         old_ref = node.ref
         other = document.files[other_path]
@@ -336,7 +336,7 @@ class TestArxml:
     def test_reference_results_preserve_nodes_and_owners(self):
         other_path = self.path.with_name('other.arxml')
         self._copy_with_distinct_paths(other_path)
-        document = IOArxml([self.path, other_path])
+        document = IOArxml([self.path, other_path], binding=self.autosar)
         ref = next(iter(document.files[self.path].index.references))
         results = document.ref_to_ref(ref)
         expected = [row for file in document.files.values() for row in file.index.references[ref]]
@@ -353,7 +353,7 @@ class TestArxml:
         assert document.ref_to_ref(('Missing',)) == []
 
     def test_reference_target_edit_round_trips(self):
-        file = ArxmlFile().parse_file(self.path)
+        file = ArxmlFile(binding=self.autosar).parse_file(self.path)
         target_ref, reference = next(
             (target_ref, row)
             for target_ref, rows in file.index.references.items()
@@ -371,7 +371,7 @@ class TestArxml:
         file.update_node(owner)
         file.save()
 
-        reloaded = ArxmlFile().parse_file(self.path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(self.path)
         assert any((row.owner_ref == reference.owner_ref and row.xml_obj.value == ref2str(updated_ref) for row in reloaded.index.references[updated_ref]))
 
         plain_reference = ArxmlRefNode(xml_obj=self.autosar.Ref(value='/Target'), owner_ref=())
@@ -385,7 +385,7 @@ class TestArxml:
         base_types.getparent().remove(base_types)
         self._rename_root_packages(tree)
         tree.write(other_path, encoding='utf-8', xml_declaration=True)
-        document = IOArxml([self.path, other_path])
+        document = IOArxml([self.path, other_path], binding=self.autosar)
         ref = ('AUTOSAR_Platform', 'BaseTypes', 'float32')
         assert document.files[other_path].ref(ref) is None
         assert len(document.ref_to_ref(ref)) == sum((len(file.index.references.get(ref, [])) for file in document.files.values()))
@@ -403,12 +403,12 @@ class TestArxml:
         assert document.ref(updated_ref) is not None
         assert document.ref_to_ref(updated_ref)
         document.flush_to_file()
-        reloaded = IOArxml([self.path, other_path])
+        reloaded = IOArxml([self.path, other_path], binding=self.autosar)
         assert reloaded.ref(updated_ref) is not None
         assert len(reloaded.ref_to_ref(updated_ref)) == len(references)
 
     def test_file_can_be_used_independently(self):
-        file = ArxmlFile().parse_file(self.path)
+        file = ArxmlFile(binding=self.autosar).parse_file(self.path)
         types = file.ar(self.autosar.SwBaseType)
         assert types
         obj = types[0]
@@ -425,19 +425,19 @@ class TestArxml:
         assert file.ref(old_ref) is None
         assert file.ref(new_ref).xml_obj is obj.xml_obj
         file.save()
-        assert ArxmlFile().parse_file(self.path).ref(new_ref) is not None
+        assert ArxmlFile(binding=self.autosar).parse_file(self.path).ref(new_ref) is not None
 
     def test_parse_autosar_can_create_and_save_a_file(self):
-        source = ArxmlFile().parse_file(self.path)
+        source = ArxmlFile(binding=self.autosar).parse_file(self.path)
         path = self.directory / 'created.arxml'
         comments = '<!-- 新建文件 -->\n<!-- 第二条注释 -->'
 
-        file = ArxmlFile().parse_autosar(path, source.root, indent='\t', leading_comments=comments)
+        file = ArxmlFile(binding=self.autosar).parse_autosar(path, source.root, indent='\t', leading_comments=comments)
         assert file.format.leading_comments == comments
         assert not path.exists()
         file.save()
 
-        reloaded = ArxmlFile().parse_file(path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(path)
         assert reloaded.root == source.root
         assert set(reloaded.index.objects) == set(source.index.objects)
         assert reloaded.format.indent == '\t'
@@ -445,7 +445,7 @@ class TestArxml:
         assert reloaded.header.file_schema_version == self.autosar.SCHEMA_VERSION
 
     def test_append_loads_existing_file_without_writing(self):
-        document = IOArxml([])
+        document = IOArxml([], binding=self.autosar)
         original_content = self.path.read_bytes()
 
         file = document.append(self.path)
@@ -457,13 +457,13 @@ class TestArxml:
         file.format.leading_comments = '<!-- 通过 IOArxml 保存 -->'
         file.save()
 
-        reloaded = ArxmlFile().parse_file(self.path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(self.path)
         assert reloaded.format.leading_comments == file.format.leading_comments
         assert reloaded.root == file.root
         assert set(reloaded.index.objects) == set(file.index.objects)
 
     def test_append_rejects_missing_paths_directories_and_invalid_xml(self):
-        document = IOArxml([])
+        document = IOArxml([], binding=self.autosar)
         original_content = self.path.read_bytes()
         invalid_path = self.path.with_name('invalid.arxml')
         invalid_path.write_text('invalid XML', encoding='utf-8')
@@ -485,12 +485,12 @@ class TestArxml:
         comments = '<!-- first -->\n<!-- 第二条\n多行注释 -->\n<!-- third -->'
         path.write_text(path.read_text(encoding='utf-8').replace('<AUTOSAR', comments + '\n<AUTOSAR', 1), encoding='utf-8')
 
-        file = ArxmlFile().parse_file(path)
+        file = ArxmlFile(binding=self.autosar).parse_file(path)
         assert file.format.leading_comments == comments
         original_root = file.root
         for _ in range(2):
             file.save()
-            file = ArxmlFile().parse_file(path)
+            file = ArxmlFile(binding=self.autosar).parse_file(path)
             assert file.format.leading_comments == comments
             assert file.root == original_root
 
@@ -498,7 +498,7 @@ class TestArxml:
         path = Path(self.path)
         path.write_text(path.read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00048.xsd'), encoding='utf-8')
         with patch('k3q_arxml.arxml_file.logger.warning') as warning:
-            file = ArxmlFile().parse_file(self.path)
+            file = ArxmlFile(binding=self.autosar).parse_file(self.path)
         warning.assert_called_once()
         assert file.parse_schema_version == '4.2.2'
         assert file.header.file_schema_version == '00048'
@@ -507,7 +507,7 @@ class TestArxml:
         root = etree.parse(str(path)).getroot()
         assert root.get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation') == schema_location
         assert etree.QName(root).namespace == file.header.xml_namespace
-        reloaded = ArxmlFile().parse_file(path)
+        reloaded = ArxmlFile(binding=self.autosar).parse_file(path)
         assert reloaded.header.file_schema_version == '00048'
         assert reloaded.root == file.root
 
@@ -518,7 +518,7 @@ class TestArxml:
             f'meta:schemaLocation="urn:other other.xsd http://autosar.org/schema/r4.0 {schema}"><AR-PACKAGES/></AUTOSAR>',
             encoding='utf-8',
         )
-        file = ArxmlFile().parse_file(self.path)
+        file = ArxmlFile(binding=self.autosar).parse_file(self.path)
         assert file.parse_schema_version == '4.2.2'
         assert file.header.file_schema_version == '4.2.2'
 
@@ -529,4 +529,4 @@ class TestArxml:
             encoding='utf-8',
         )
         with pytest.raises(ValueError, match='无法核对 schema_version'):
-            ArxmlFile().parse_file(self.path)
+            ArxmlFile(binding=self.autosar).parse_file(self.path)

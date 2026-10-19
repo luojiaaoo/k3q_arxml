@@ -1,89 +1,32 @@
-"""跨平台、按需生成当前 AUTOSAR 绑定的命令行。"""
+"""内部 AUTOSAR XSD 发现及绑定生成工具，不注册用户 CLI；直接执行仅供维护者生成绑定。"""
 
-import hashlib
-import json
+import argparse
 import os
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
-from zipfile import BadZipFile, ZipFile
+from tempfile import TemporaryDirectory
 
 import click
 
-from .schemas import PACKAGE_ROOT, SCHEMAS
+PACKAGE_ROOT = Path(__file__).resolve().parent
+SCHEMA_ROOT = PACKAGE_ROOT / 'schemas'
 
 
-@click.group()
-def cli() -> None:
-    """管理当前项目的 AUTOSAR 类型绑定。"""
+def discover_schemas(root: Path = SCHEMA_ROOT) -> dict[str, Path]:
+    """扫描 autosar_* 目录，只列出存在对应主 XSD 文件的版本。"""
+    schemas = {}
+    for directory in sorted(root.glob('autosar_*')):
+        version = directory.name.removeprefix('autosar_')
+        schema = directory / f'AUTOSAR_{version.replace("_", "-")}.xsd'
+        if schema.is_file():
+            schemas[version.replace('_', '.')] = schema
+    return schemas
 
 
-@cli.command('versions')
-def versions() -> None:
-    """列出可生成的 AUTOSAR schema 版本。"""
-    for version in SCHEMAS:
-        click.echo(version)
-
-
-@cli.command('mcp')
-@click.option('--schema-version', type=click.Choice(tuple(SCHEMAS)), help='按需用预生成的 AUTOSAR 绑定覆盖当前库的 autosar.py，再以新进程启动。')
-def serve_mcp(schema_version: str | None) -> None:
-    """在当前目录启动 stdio MCP；所有诊断输出到 stderr。"""
-    from . import autosar
-    from .log import configure_logging
-
-    if schema_version is not None and schema_version != autosar.SCHEMA_VERSION:
-        _unpack_binding(schema_version, PACKAGE_ROOT / 'autosar.py')
-        # 当前进程已导入旧类型，覆盖后必须由新进程加载；下一次同版本启动无需再次解压。
-        result = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'mcp'])
-        raise SystemExit(result.returncode)
-
-    # 指定其他绑定时由子进程加载 SDK，父进程只负责准备绑定，避免重复导入。
-    try:
-        from .mcp.server import create_server
-    except ModuleNotFoundError as exc:
-        if exc.name == 'mcp' or (exc.name and exc.name.startswith('mcp.')):
-            raise click.ClickException('缺少 MCP 可选依赖，请先运行 uv sync --locked --extra mcp。') from exc
-        raise
-
-    configure_logging()
-    create_server(Path.cwd()).run(transport='stdio')
-
-
-def _unpack_binding(version: str, target: Path) -> None:
-    archive = PACKAGE_ROOT / 'bindings' / f'autosar_{version.replace(".", "_")}.zip'
-    try:
-        with ZipFile(archive) as bundle:
-            metadata = json.loads(bundle.read('metadata.json'))
-            content = bundle.read('autosar.py')
-        if (
-            metadata['schema_version'] != version
-            or metadata['xsd_sha256'] != hashlib.sha256(SCHEMAS[version].read_bytes()).hexdigest()
-            or metadata['python_sha256'] != hashlib.sha256(content).hexdigest()
-        ):
-            raise ValueError('绑定版本、XSD 或代码哈希不匹配')
-    except (OSError, BadZipFile, KeyError, ValueError, TypeError) as exc:
-        raise click.ClickException(f'无法读取预生成绑定 {archive}：{exc}；请检查发行包是否完整。') from exc
-    # 只写入固定文件；同目录暂存后原子替换，不复制包或直接截断现有绑定。
-    temporary = None
-    try:
-        with NamedTemporaryFile(dir=target.parent, prefix='.autosar-', suffix='.tmp', delete=False) as output:
-            temporary = Path(output.name)
-            output.write(content)
-        temporary.replace(target)
-    except OSError as exc:
-        raise click.ClickException(f'无法替换当前绑定 {target}：{exc}；请检查安装目录的写入权限，原绑定未修改。') from exc
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
-@cli.command('generate')
-@click.argument('version', type=click.Choice(tuple(SCHEMAS)))
-def generate(version: str) -> None:
-    """生成 VERSION 为 k3q_arxml.autosar，替换此前生成的版本。"""
-    _generate_binding(version, PACKAGE_ROOT / 'autosar.py')
+SCHEMAS = discover_schemas()
 
 
 def _generate_binding(version: str, target: Path, *, stderr: bool = False) -> None:
@@ -129,4 +72,31 @@ def _generate_binding(version: str, target: Path, *, stderr: bool = False) -> No
         raise click.ClickException(f'xsdata 生成失败（退出码 {exc.returncode}），当前绑定未修改。') from exc
     except OSError as exc:
         raise click.ClickException(f'无法生成绑定：{exc}') from exc
-    click.echo(f'已生成 {target}\n使用 from k3q_arxml import autosar 导入类型；请在新的 Python 进程中使用。', err=stderr)
+    click.echo(f'已生成 {target}\n使用 from k3q_arxml.schemas.{target.stem} import {target.stem} 导入类型；请在新的 Python 进程中使用。', err=stderr)
+
+
+def build_binding(version: str, output: Path) -> Path:
+    started = time.perf_counter()
+    suffix = version.replace('.', '_')
+    target = output / f'autosar_{suffix}' / f'autosar_{suffix}.py'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _generate_binding(version, target, stderr=True)
+    print(f'{version}: {target.stat().st_size / 1024:.0f} KiB, {time.perf_counter() - started:.1f}s', flush=True)
+    return target
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--versions', nargs='+', choices=tuple(SCHEMAS), default=list(SCHEMAS))
+    parser.add_argument('--jobs', type=int, choices=range(1, 5), default=2)
+    parser.add_argument('--output', type=Path, default=SCHEMA_ROOT)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        futures = [executor.submit(build_binding, version, args.output) for version in dict.fromkeys(args.versions)]
+        for future in as_completed(futures):
+            future.result()
+
+
+if __name__ == '__main__':
+    main()

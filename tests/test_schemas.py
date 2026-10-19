@@ -1,4 +1,4 @@
-from k3q_arxml.schemas import discover_schemas
+from k3q_arxml.cli import discover_schemas
 
 
 class TestSchemaDiscovery:

@@ -11,7 +11,8 @@ from shutil import copy2, copytree, ignore_patterns
 import pytest
 from lxml import etree
 
-from k3q_arxml import ArxmlFile, autosar
+from k3q_arxml import ArxmlFile
+from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
 from k3q_arxml.mcp import persistence
 from k3q_arxml.mcp.schemas import McpPatchOperation
 from k3q_arxml.mcp.service import ArxmlMcpService
@@ -43,7 +44,7 @@ def test_startup_defers_xsd_compilation_and_reuses_it_for_validation(tmp_path, m
         return schema
 
     monkeypatch.setattr(etree, 'XMLSchema', compile_once)
-    service = ArxmlMcpService(tmp_path)
+    service = ArxmlMcpService(tmp_path, binding=autosar)
     assert Path(service.get_skill_path()).is_dir()
     assert not compiled
 
@@ -81,7 +82,7 @@ def project(tmp_path):
         ),
         encoding='utf-8',
     )
-    service = ArxmlMcpService(workspace)
+    service = ArxmlMcpService(workspace, binding=autosar)
     info = service.open_project([types.name, references.name])
     return service, info, [types, references]
 
@@ -587,7 +588,7 @@ def test_sample_round_trip_and_compound_order(tmp_path):
         pytest.skip('样例需要 4.2.2 绑定')
     path = tmp_path / 'sample.arxml'
     copy2(Path(__file__).resolve().parents[1] / 'test/ThrottlePositionControlComposition.arxml', path)
-    service = ArxmlMcpService(tmp_path)
+    service = ArxmlMcpService(tmp_path, binding=autosar)
     info = service.open_project([str(path)])
     node = service.find_nodes(info.project_id, xml_tag='SW-BASE-TYPE').items[0]
     before = read_xml(service.get_node(info.project_id, node.ref, include_xml=True).xml)
@@ -595,47 +596,43 @@ def test_sample_round_trip_and_compound_order(tmp_path):
     service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
     after = read_xml(service.get_node(info.project_id, node.ref, include_xml=True).xml)
     assert [child.tag for child in before] == [child.tag for child in after]
-    assert ArxmlFile().parse_file(path).ref(tuple(node.ref.split('/')[1:])).xml_obj.uuid == 'sample-edit'
+    assert ArxmlFile(binding=autosar).parse_file(path).ref(tuple(node.ref.split('/')[1:])).xml_obj.uuid == 'sample-edit'
 
 
-def test_module_cli_generates_with_bundled_binding_and_mcp_requires_binding(tmp_path):
+def test_only_mcp_entrypoint_is_exposed_and_requires_binding(tmp_path):
     root = Path(__file__).resolve().parents[1]
     isolated = tmp_path / '命令行 环境'
-    copytree(root / 'k3q_arxml', isolated / 'k3q_arxml', ignore=lambda directory, names: {'__pycache__', 'schemas'} & set(names))
-    schema = isolated / 'k3q_arxml/schemas/autosar_4_2_2/AUTOSAR_4-2-2.xsd'
-    schema.parent.mkdir(parents=True)
-    schema.write_text('<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="sample" type="xs:string"/></xs:schema>', encoding='utf-8')
+    copytree(root / 'k3q_arxml', isolated / 'k3q_arxml', ignore=ignore_patterns('__pycache__'))
     env = {**os.environ, 'PYTHONPATH': str(isolated), 'PYTHONIOENCODING': 'utf-8'}
-    for arguments in (['--help'], ['versions'], ['generate', '--help']):
-        result = subprocess.run([sys.executable, '-m', 'k3q_arxml', *arguments], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
-        assert result.returncode == 0, result.stderr
-    generated = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'generate', '4.2.2'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
-    assert generated.returncode == 0, generated.stderr
-    assert "SCHEMA_VERSION = '4.2.2'" in (isolated / 'k3q_arxml/autosar.py').read_text(encoding='utf-8')
-    (isolated / 'k3q_arxml/autosar.py').unlink()
-    result = subprocess.run([sys.executable, '-m', 'k3q_arxml', 'mcp'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
-    assert result.returncode != 0 and '恢复项目自带' in result.stderr and not result.stdout
+    result = subprocess.run([sys.executable, '-m', 'k3q_arxml', '--help'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+    assert result.returncode != 0 and '__main__' in result.stderr and not result.stdout
+    script = isolated / 'k3q-arxml-mcp-4-2-2.py'
+    script.write_text('from k3q_arxml.script.serve_mcp import main\nmain()\n', encoding='utf-8')
+    result = subprocess.run([sys.executable, str(script), '--help'], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+    assert result.returncode == 0 and '--schema-version' not in result.stdout
+    (isolated / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').unlink()
+    result = subprocess.run([sys.executable, str(script)], cwd=isolated, env=env, capture_output=True, text=True, encoding='utf-8')
+    assert result.returncode != 0 and 'autosar_4_2_2' in result.stderr and not result.stdout
 
 
-@pytest.mark.parametrize('schema_version', [None, '00044'])
+@pytest.mark.parametrize('schema_version', ['4.2.2', '00044'])
 def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
-    pytest.importorskip('mcp', reason='真实 stdio 测试需要 uv run --extra mcp pytest')
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     service, _, paths = project
     paths[0].write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', 'AUTOSAR_00044.xsd'), encoding='utf-8')
     root = Path(__file__).resolve().parents[1]
-    original_binding = (root / 'k3q_arxml/autosar.py').read_bytes()
-    # 切换会直接覆盖库；在测试副本中验证，避免改动仓库和其他测试的绑定。
+    original_binding = (root / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes()
+    # 从独立脚本启动，检查各版本服务的真实 stdio 行为及绑定文件保持不变。
     runtime = service.workspace / '服务 环境'
     copytree(root / 'k3q_arxml', runtime / 'k3q_arxml', ignore=ignore_patterns('__pycache__'))
     copytree(root / 'skills', runtime / 'skills')
-    arguments = ['--project', str(root), 'run', '--extra', 'mcp', '-m', 'k3q_arxml', 'mcp']
-    if schema_version:
-        arguments.extend(['--schema-version', schema_version])
+    script = runtime / f'k3q-arxml-mcp-{schema_version.replace(chr(46), chr(45))}.py'
+    script.write_text('from k3q_arxml.script.serve_mcp import main\nmain()\n', encoding='utf-8')
+    arguments = [str(script)]
     parameters = StdioServerParameters(
-        command='uv',
+        command=sys.executable,
         args=arguments,
         cwd=service.workspace,
         env={'PYTHONPATH': str(runtime), 'PYTHONIOENCODING': 'utf-8'},
@@ -657,7 +654,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
                 assert not opened.is_error, opened.content
-                assert opened.structured_content['schema_version'] == (schema_version or autosar.SCHEMA_VERSION)
+                assert opened.structured_content['schema_version'] == schema_version
                 mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
                 assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
                 project_id = opened.structured_content['project_id']
@@ -690,21 +687,5 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert not closed.is_error
 
     asyncio.run(asyncio.wait_for(run(), timeout=180))
-    runtime_binding = runtime / 'k3q_arxml/autosar.py'
-    if schema_version:
-        assert f"SCHEMA_VERSION = '{schema_version}'".encode() in runtime_binding.read_bytes()
-        modified = runtime_binding.stat().st_mtime_ns
-
-        async def reconnect():
-            async with stdio_client(parameters) as (read, write):
-                async with ClientSession(read, write) as client:
-                    await client.initialize()
-                    opened = await client.call_tool('open_project', {'filepaths': [path.name for path in paths]})
-                    assert not opened.is_error
-                    assert opened.structured_content['schema_version'] == schema_version
-
-        asyncio.run(asyncio.wait_for(reconnect(), timeout=180))
-        assert runtime_binding.stat().st_mtime_ns == modified
-    else:
-        assert runtime_binding.read_bytes() == original_binding
-    assert (root / 'k3q_arxml/autosar.py').read_bytes() == original_binding
+    assert (runtime / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes() == original_binding
+    assert (root / 'k3q_arxml/schemas/autosar_4_2_2/autosar_4_2_2.py').read_bytes() == original_binding

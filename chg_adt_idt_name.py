@@ -11,7 +11,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, str2ref, ref2str
+    from k3q_arxml import ArxmlTransaction, IOArxml, str2ref, ref2str
+    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
     from k3q_arxml.log import configure_logging
 
     for filepath in args.arxml_files:
@@ -23,7 +24,7 @@ def main() -> None:
 
     configure_logging('DEBUG')
 
-    io_arxml = IOArxml(filepaths=args.arxml_files)
+    io_arxml = IOArxml(filepaths=args.arxml_files, binding=autosar)
 
     # 修改adt
     for obj in io_arxml.ar(clazz=autosar.ApplicationPrimitiveDataType):

@@ -9,7 +9,7 @@ from k3q_arxml import IOArxml
 
 @pytest.fixture
 def rename_files(tmp_path):
-    from k3q_arxml import autosar
+    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
 
     if autosar.SCHEMA_VERSION != '4.2.2':
         pytest.skip('重命名脚本测试需要生成 4.2.2 绑定')
@@ -44,8 +44,8 @@ def rename_files(tmp_path):
 def run_script(monkeypatch, module, paths, options, expected_names, reference_count=2):
     documents = []
 
-    def load(filepaths):
-        document = IOArxml(filepaths)
+    def load(filepaths, *, binding):
+        document = IOArxml(filepaths, binding=binding)
         documents.append(document)
         return document
 
@@ -55,7 +55,7 @@ def run_script(monkeypatch, module, paths, options, expected_names, reference_co
         module.main()
 
     # 同时检查运行时索引和实际落盘内容，避免只更新内存或只更新定义文件。
-    for document in (documents[0], IOArxml(paths)):
+    for document in (documents[0], IOArxml(paths, binding=documents[0].binding)):
         assert {node.short_name for ref, node in document.files[paths[0]].index.objects.items() if len(ref) == 2} == set(expected_names)
         assert set(document.files[paths[1]].index.references) == {('Types', name) for name in expected_names}
         for name in expected_names:

@@ -13,7 +13,8 @@ def main() -> None:
     parser.add_argument('arxml_files', nargs='+', type=Path, help='arxml file list')
     args = parser.parse_args()
 
-    from k3q_arxml import ArxmlTransaction, IOArxml, autosar, logger, str2ref
+    from k3q_arxml import ArxmlTransaction, IOArxml, logger, str2ref
+    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
     from k3q_arxml.log import configure_logging
 
     configure_logging('DEBUG')
@@ -22,7 +23,7 @@ def main() -> None:
     soa_interface_name = args.soa_interface_name
     has_change_adt_prefix = []
 
-    io_arxml = IOArxml(filepaths=args.arxml_files)
+    io_arxml = IOArxml(filepaths=args.arxml_files, binding=autosar)
     for arxml_obj_interface in io_arxml.ar(clazz=autosar.SenderReceiverInterface):
         ref_interface = arxml_obj_interface.ref
         if ref_interface[-1] not in soa_interface_name:  # 不在SOA接口列表中，检查之前是否添加了后缀

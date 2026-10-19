@@ -10,6 +10,7 @@ from enum import Enum
 from functools import cached_property
 from pathlib import Path
 from threading import RLock
+from types import ModuleType
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -17,10 +18,10 @@ from lxml import etree
 from pydantic import Field
 from xsdata.formats.dataclass.context import XmlContext
 
-from .. import autosar
 from ..arxml_file import ArxmlFile, ref2str, str2ref
 from ..k3q_arxml import IOArxml
-from ..schemas import PACKAGE_ROOT, SCHEMAS, ArxmlHeader, ArxmlNamedNode
+from ..cli import PACKAGE_ROOT, SCHEMAS
+from ..schemas import ArxmlHeader, ArxmlNamedNode
 from .persistence import check_recovery, checked_path, digest, save_files
 from .schemas import (
     McpCloseResult,
@@ -89,7 +90,8 @@ def _references(root: etree._Element, owner_ref: tuple[str, ...] = (), owner: et
 class ArxmlMcpService:
     """每个 stdio 进程管理自己的会话，不对外暴露活动 XML 对象。"""
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, *, binding: ModuleType):
+        self.binding = binding
         self.workspace = workspace.resolve()
         if not self.workspace.is_dir():
             fail('INVALID_WORKSPACE', '工作目录不存在。', '请用户检查服务启动目录。')
@@ -97,7 +99,7 @@ class ArxmlMcpService:
         self.lock = RLock()
         self.context = XmlContext()
         self._type_roles: dict[str, list[tuple[type, str]]] | None = None
-        self._schema_path = SCHEMAS.get(autosar.SCHEMA_VERSION)
+        self._schema_path = SCHEMAS.get(self.binding.SCHEMA_VERSION)
         if self._schema_path is None:
             fail('SCHEMA_NOT_FOUND', '找不到当前绑定对应的本地 XSD。', '请用户检查当前运行环境中的绑定与 XSD 文件是否完整。')
 
@@ -239,7 +241,7 @@ class ArxmlMcpService:
         paths = {}
         baseline = {}
         rendered_baseline = {}
-        io = IOArxml([])
+        io = IOArxml([], binding=self.binding)
         seen_refs = set()
         load_diagnostics = []
         for index, value in enumerate(filepaths):
@@ -263,7 +265,7 @@ class ArxmlMcpService:
                 load_diagnostics.extend(
                     McpDiagnostic(code='XSD_ERROR', severity='error', message=error.message, file_id=file_id, line=error.line) for error in self.schema.error_log
                 )
-            obj = parse_object(root, autosar.Autosar)
+            obj = parse_object(root, self.binding.Autosar)
             comments = []
             previous = root.getprevious()
             while previous is not None:
@@ -271,7 +273,7 @@ class ArxmlMcpService:
                     comments.append(etree.tostring(previous, encoding='unicode', with_tail=False))
                 previous = previous.getprevious()
             indent = re.search(rb'\n([ \t]+)<', content)
-            file = ArxmlFile().parse_autosar(
+            file = ArxmlFile(binding=self.binding).parse_autosar(
                 path, obj, header.xml_namespace, header.xml_schema_location, indent.group(1).decode() if indent else '    ', '\n'.join(reversed(comments))
             )
             io.files[path] = file
@@ -289,7 +291,7 @@ class ArxmlMcpService:
         return McpProjectInfo(
             project_id=project_id,
             revision=project.revision,
-            schema_version=autosar.SCHEMA_VERSION,
+            schema_version=self.binding.SCHEMA_VERSION,
             files=[McpFileInfo(file_id=key, filepath=str(file.filepath), object_count=len(file.index.objects), dirty=file._dirty) for key, file in self._files(project).items()],
             diagnostics=project.load_diagnostics,
         )
@@ -376,11 +378,13 @@ class ArxmlMcpService:
 
     def describe_type(self, xml_tag: str, python_type: str | None = None) -> McpTypeInfo:
         """查询 XML 标签的字段、枚举与 compound choices。同名标签有多种绑定时，从 alternative_types 选取 python_type 进一步查询。"""
-        classes = [clazz for clazz in vars(autosar).values() if isinstance(clazz, type) and is_dataclass(clazz) and getattr(getattr(clazz, 'Meta', None), 'name', None) == xml_tag]
+        classes = [
+            clazz for clazz in vars(self.binding).values() if isinstance(clazz, type) and is_dataclass(clazz) and getattr(getattr(clazz, 'Meta', None), 'name', None) == xml_tag
+        ]
         if not classes or python_type:
             if self._type_roles is None:
                 self._type_roles = {}
-                pending = [value for value in vars(autosar).values() if isinstance(value, type) and is_dataclass(value)]
+                pending = [value for value in vars(self.binding).values() if isinstance(value, type) and is_dataclass(value)]
                 visited = set()
                 while pending:
                     kind = pending.pop()
@@ -489,7 +493,7 @@ class ArxmlMcpService:
             actual = read_xml(ArxmlNamedNode(xml_obj=replacement, ref=node.ref).content)
             candidate = replace_object(candidate, old, replacement)
         else:
-            candidate = ArxmlFile().parse_autosar(
+            candidate = ArxmlFile(binding=self.binding).parse_autosar(
                 original.filepath, replacement, original.header.xml_namespace, original.header.xml_schema_location, original.format.indent, original.format.leading_comments
             )
             actual = read_xml(candidate.render())

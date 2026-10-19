@@ -18,19 +18,13 @@ description: 使用 k3q_arxml MCP 或 Python 脚本读取、查询、修改、�
 
 ## 用户启动前准备
 
-用户准备 Python 3.11 以上环境，并在客户端的 MCP 启动参数中选择 AUTOSAR 版本。发行包默认携带 4.2.2 绑定，以下以指定 00044 为例：
+用户准备 Python 3.11 以上环境，安装当前源码构建包（默认包含 MCP 依赖），可直接通过 `k3q-arxml-mcp-00044` 启动，无需版本参数；4.2.2 对应 `k3q-arxml-mcp-4-2-2`。版本只由命令名称决定，不接受 --schema-version 参数。可用版本由包内实际 XSD 目录决定。
 
-```bash
-python -m pip install "k3q-arxml[mcp]==2.1.3"
-python -m k3q_arxml versions
-python -m k3q_arxml mcp --schema-version 00044
-```
+客户端配置 `command="C:/arxml-env/Scripts/k3q-arxml-mcp-00044.exe"`、`args=[]`，`cwd` 指定业务模型目录。Linux/macOS 使用安装环境的 bin/k3q-arxml-mcp-00044。各版本命令复用的唯一入口源码位于 `k3q_arxml/script/serve_mcp.py`，通过无参数函数根据命令名称固定版本，校验后仅导入所选的 autosar_00044 模块。所有版本绑定与各自 XSD 同目录随包分发；不使用 ZIP、不替换绑定、不再启动子进程，也不提供旧的 autosar.py 兼容入口。
 
-服务应由 MCP 客户端以 `command="python"`、`args=["-m", "k3q_arxml", "mcp", "--schema-version", "00044"]` 启动；有多个 Python 环境时，将 command 换成已安装包的 Python 可执行文件路径。也可通过 `uv run --python 3.11 --with "k3q-arxml[mcp]==2.1.3" -m k3q_arxml mcp --schema-version 00044` 启动。上面的 mcp 命令只说明服务入口，不需要额外手动启动第二个服务。源码开发环境在仓库根目录使用 `uv sync --locked --extra mcp` 和 `uv run -m k3q_arxml ...`。
+这些版本命令尚未发布；已发布的 2.1.3 使用旧的 `python -m k3q_arxml mcp --schema-version 00044`。当前源码安装与客户端配置见仓库 README。
 
-当前源码在指定版本与当前绑定不同时，CLI 校验包内对应版本的预生成 ZIP，直接原子替换当前库的 `autosar.py`，再通过新进程启动 MCP；退出后保留所选绑定。同版本再次启动不再解压或启动子进程。不指定版本时使用当前环境最后准备的绑定；同一环境共享该绑定，需要多个版本时分别使用独立环境。此改动尚未发布，上述固定安装的 `2.1.3` 仍使用临时包；已发布的 `2.1.2` / `2.1.3` 不覆盖原安装包，`2.1.1` 使用运行时生成。
-
-服务启动后版本固定。用户需要其他版本时修改客户端的 `--schema-version` 并重新启动服务。AI 的文件操作流程不额外执行生成命令、切换或重启，也不将版本确认作为每次对话的前置提问。独立 Python 脚本启动前应核对其实际环境的 `autosar.SCHEMA_VERSION`；当前源码的版本选择会保留在库中，而已发布 `2.1.3` 的临时绑定不影响原安装环境。
+服务运行后版本固定；需要其他版本时由用户改用对应的版本命令，然后重新连接。AI 文件操作流程不额外生成绑定、切换或重启服务，也不将版本确认作为每次对话的前置提问。Python 脚本明确导入 autosar_<版本>，通过 binding=该模块 传给 IOArxml、ArxmlFile 或 ArxmlMcpService；库本身不导入任何版本。
 
 服务以进程启动目录作为文件访问范围，包含其子目录。使用 MCP 客户端时，由客户端的 `cwd` 指定业务模型目录；源码运行所需的 Python 路径与 uv 项目配置见上面链接的 README。
 

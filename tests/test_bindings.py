@@ -1,99 +1,160 @@
-import ast
-import hashlib
-import json
-from zipfile import ZipFile
+"""独立绑定、脚本入口与版本隔离回归。"""
 
-import click
+import os
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
 
-from k3q_arxml.cli import _unpack_binding
-from k3q_arxml.schemas import PACKAGE_ROOT, SCHEMAS
+from k3q_arxml import ArxmlFile, IOArxml
+from k3q_arxml.cli import PACKAGE_ROOT, SCHEMAS, SCHEMA_ROOT
 
 
-def test_bundled_bindings_cover_all_schemas_and_match_sources():
-    archives = list((PACKAGE_ROOT / 'bindings').glob('*.zip'))
-    assert {path.name for path in archives} == {f'autosar_{version.replace(".", "_")}.zip' for version in SCHEMAS}
+def test_bundled_modules_and_entrypoints_cover_all_schemas():
+    expected = {f'autosar_{version.replace(".", "_")}.py' for version in SCHEMAS}
+    assert {path.name for path in SCHEMA_ROOT.glob('autosar_*/autosar_*.py')} == expected
+    assert not (PACKAGE_ROOT / 'autosar.py').exists()
+    assert not (PACKAGE_ROOT / 'bindings').exists()
+    config = tomllib.loads((PACKAGE_ROOT.parent / 'pyproject.toml').read_text(encoding='utf-8'))
+    entries = config['project']['scripts']
+    commands = {f'k3q-arxml-mcp-{version.replace(chr(46), chr(45))}' for version in SCHEMAS}
+    assert entries == dict.fromkeys(commands, 'k3q_arxml.script.serve_mcp:main')
+    assert not list(SCHEMA_ROOT.glob('autosar_*/__init__.py'))
+    assert not (PACKAGE_ROOT / 'script/__init__.py').exists()
     for version in SCHEMAS:
-        with ZipFile(PACKAGE_ROOT / 'bindings' / f'autosar_{version.replace(".", "_")}.zip') as archive:
-            assert set(archive.namelist()) == {'autosar.py', 'metadata.json'}
-            metadata = json.loads(archive.read('metadata.json'))
-            content = archive.read('autosar.py')
-        assert metadata['schema_version'] == version
-        assert metadata['xsd_sha256'] == hashlib.sha256(SCHEMAS[version].read_bytes()).hexdigest()
-        assert metadata['python_sha256'] == hashlib.sha256(content).hexdigest()
-        module = ast.parse(content)
-        declared = next(
-            ast.literal_eval(node.value)
-            for node in module.body
-            if isinstance(node, ast.Assign) and any(isinstance(item, ast.Name) and item.id == 'SCHEMA_VERSION' for item in node.targets)
+        suffix = version.replace('.', '_')
+        assert f'SCHEMA_VERSION = {version!r}' in (SCHEMAS[version].parent / f'autosar_{suffix}.py').read_text(encoding='utf-8')[-100:]
+
+
+@pytest.mark.parametrize('version', SCHEMAS)
+def test_entrypoint_imports_only_selected_binding_inside_main(version):
+    suffix = version.replace('.', '_')
+    code = f"""import sys
+from dataclasses import is_dataclass
+from types import ModuleType
+from unittest.mock import MagicMock
+from click.testing import CliRunner
+from k3q_arxml import IOArxml
+assert 'k3q_arxml.cli' not in sys.modules
+from k3q_arxml.script.serve_mcp import main
+assert not any(name.startswith('k3q_arxml.schemas.autosar_') for name in sys.modules)
+server = ModuleType('k3q_arxml.mcp.server')
+server.create_server = MagicMock()
+sys.modules['k3q_arxml.mcp.server'] = server
+result = CliRunner().invoke(main, [], prog_name='k3q-arxml-mcp-{version.replace(chr(46), chr(45))}')
+assert result.exit_code == 0, result.output
+assert server.create_server.call_count == 1
+binding = server.create_server.call_args.kwargs['binding']
+assert binding.SCHEMA_VERSION == {version!r}
+assert is_dataclass(binding.Autosar)
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from k3q_arxml import IOArxml
+with TemporaryDirectory() as directory:
+    path = Path(directory) / 'minimal.arxml'
+    path.write_text('<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_{version.replace(chr(46), chr(45))}.xsd"/>', encoding='utf-8')
+    io = IOArxml([path], binding=binding)
+    assert isinstance(io.files[path.resolve()].root, binding.Autosar)
+assert binding.Autosar.__module__ == 'k3q_arxml.schemas.autosar_{suffix}.autosar_{suffix}'
+assert [name for name in sys.modules if name.startswith('k3q_arxml.schemas.autosar_')] == ['k3q_arxml.schemas.autosar_{suffix}', 'k3q_arxml.schemas.autosar_{suffix}.autosar_{suffix}']
+"""
+    result = subprocess.run(
+        [sys.executable, '-c', code], cwd=PACKAGE_ROOT.parent, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, capture_output=True, text=True, encoding='utf-8'
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_io_append_uses_explicit_binding(tmp_path):
+    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+
+    path = tmp_path / 'types.arxml'
+    path.write_text(
+        '<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00044.xsd"/>',
+        encoding='utf-8',
+    )
+    io = IOArxml([path], binding=autosar_00044)
+    assert io.files[path.resolve()].binding is autosar_00044
+    assert isinstance(io.files[path.resolve()].root, autosar_00044.Autosar)
+
+
+def test_version_services_keep_bindings_during_edit_clone_and_root_patch(tmp_path):
+    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2
+    from k3q_arxml.mcp.schemas import McpPatchOperation
+    from k3q_arxml.mcp.service import ArxmlMcpService
+
+    for binding in (autosar_00044, autosar_4_2_2):
+        path = tmp_path / f'{binding.SCHEMA_VERSION}.arxml'
+        schema = binding.SCHEMA_VERSION.replace('.', '-')
+        path.write_text(
+            '<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            f'xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_{schema}.xsd">'
+            '<AR-PACKAGES><AR-PACKAGE><SHORT-NAME>Types</SHORT-NAME></AR-PACKAGE></AR-PACKAGES></AUTOSAR>',
+            encoding='utf-8',
         )
-        assert declared == version
+        service = ArxmlMcpService(tmp_path, binding=binding)
+        info = service.open_project([path.name])
+        renamed = service.rename_node(info.project_id, '/Types', 'Updated', info.revision)
+        operation = McpPatchOperation(op='set_attribute', xpath='./ar:AR-PACKAGES/ar:AR-PACKAGE', attribute='UUID', value='version-test')
+        service.patch_xml(info.project_id, '/', [operation], renamed.revision, file_id='f1')
+        file = next(iter(service.projects[info.project_id].io.files.values()))
+        assert file.binding is binding and file.parse_schema_version == binding.SCHEMA_VERSION
+        assert isinstance(file.root, binding.Autosar)
+        assert service.project_info(info.project_id).schema_version == binding.SCHEMA_VERSION
+        assert service.describe_type('AUTOSAR').xml_tag == 'AUTOSAR'
+        assert service.validate_project(info.project_id).valid
+    with pytest.raises(TypeError, match='binding'):
+        IOArxml([])
+    with pytest.raises(TypeError, match='binding'):
+        ArxmlFile()
 
 
-@pytest.fixture
-def bundle(tmp_path, monkeypatch):
-    root = tmp_path / '中文 包目录'
-    (root / 'bindings').mkdir(parents=True)
-    schema = root / 'tiny.xsd'
-    schema.write_bytes(b'<schema/>')
-    content = b"SCHEMA_VERSION = '00044'\n"
-    metadata = {
-        'schema_version': '00044',
-        'xsd_sha256': hashlib.sha256(schema.read_bytes()).hexdigest(),
-        'python_sha256': hashlib.sha256(content).hexdigest(),
-    }
-    monkeypatch.setattr('k3q_arxml.cli.PACKAGE_ROOT', root)
-    monkeypatch.setitem(SCHEMAS, '00044', schema)
-    return root / 'bindings/autosar_00044.zip', metadata, content
+def test_main_passes_selected_binding_and_cwd_without_subprocess(tmp_path, monkeypatch):
+    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from click.testing import CliRunner
+    from k3q_arxml.script.serve_mcp import main
+
+    monkeypatch.chdir(tmp_path)
+    with patch('k3q_arxml.mcp.server.create_server') as create:
+        result = CliRunner().invoke(main, [], prog_name='k3q-arxml-mcp-00044')
+    assert result.exit_code == 0, result.output
+    create.assert_called_once_with(Path.cwd(), binding=autosar_00044)
+    create.return_value.run.assert_called_once_with(transport='stdio')
 
 
-def test_unpack_writes_selected_module_without_extracting_other_paths(bundle, tmp_path):
-    path, metadata, content = bundle
-    with ZipFile(path, 'w') as archive:
-        archive.writestr('metadata.json', json.dumps(metadata))
-        archive.writestr('autosar.py', content)
-        archive.writestr('../unexpected.py', 'raise RuntimeError()')
-    target = tmp_path / 'autosar.py'
-    _unpack_binding('00044', target)
-    assert target.read_bytes() == content
-    assert not (path.parent.parent / 'unexpected.py').exists()
-    assert sorted(item.name for item in tmp_path.iterdir()) == ['autosar.py', '中文 包目录']
+@pytest.mark.parametrize('args', [[], ['--schema-version', 'unknown'], ['--help']])
+def test_invalid_or_help_arguments_do_not_import_binding(args):
+    from click.testing import CliRunner
+    from k3q_arxml.script.serve_mcp import main
+
+    with patch('k3q_arxml.script.serve_mcp.import_module') as load:
+        result = CliRunner().invoke(main, args)
+    assert result.exit_code == (0 if args == ['--help'] else 2)
+    load.assert_not_called()
 
 
-@pytest.mark.parametrize('fault', ['missing', 'broken', 'missing_member', 'invalid_json', 'schema_version', 'xsd_sha256', 'python_sha256'])
-def test_invalid_bundle_does_not_replace_target(bundle, tmp_path, fault):
-    path, metadata, content = bundle
-    if fault == 'broken':
-        path.write_bytes(b'not a zip')
-    elif fault != 'missing':
-        if fault in metadata:
-            metadata[fault] = 'wrong'
-        with ZipFile(path, 'w') as archive:
-            archive.writestr('metadata.json', '{' if fault == 'invalid_json' else json.dumps(metadata))
-            if fault != 'missing_member':
-                archive.writestr('autosar.py', content)
-    target = tmp_path / 'autosar.py'
-    target.write_bytes(b'# previous binding\n')
-    with pytest.raises(click.ClickException, match='预生成绑定'):
-        _unpack_binding('00044', target)
-    assert target.read_bytes() == b'# previous binding\n'
+@pytest.mark.parametrize('command', ['k3q-arxml-mcp-00044', 'k3q-arxml-mcp-00044.exe'])
+def test_version_command_needs_no_arguments(command, tmp_path, monkeypatch):
+    from click.testing import CliRunner
+    from k3q_arxml.schemas.autosar_00044 import autosar_00044
+    from k3q_arxml.script.serve_mcp import main
+
+    monkeypatch.chdir(tmp_path)
+    with patch('k3q_arxml.mcp.server.create_server') as create:
+        result = CliRunner().invoke(main, [], prog_name=command)
+    assert result.exit_code == 0, result.output
+    create.assert_called_once_with(Path.cwd(), binding=autosar_00044)
 
 
-def test_failed_atomic_replacement_keeps_binding_and_cleans_temporary_file(bundle, tmp_path, monkeypatch):
-    path, metadata, content = bundle
-    with ZipFile(path, 'w') as archive:
-        archive.writestr('metadata.json', json.dumps(metadata))
-        archive.writestr('autosar.py', content)
-    target = tmp_path / 'autosar.py'
-    target.write_bytes(b'# previous binding\n')
+def test_version_command_rejects_removed_version_option_before_import():
+    from click.testing import CliRunner
+    from k3q_arxml.script.serve_mcp import main
 
-    def reject_replace(source, destination):
-        assert destination == target
-        assert source.read_bytes() == content
-        raise PermissionError('replacement denied')
-
-    monkeypatch.setattr(type(target), 'replace', reject_replace)
-    with pytest.raises(click.ClickException, match='原绑定未修改'):
-        _unpack_binding('00044', target)
-    assert target.read_bytes() == b'# previous binding\n'
-    assert not list(tmp_path.glob('.autosar-*'))
+    with patch('k3q_arxml.script.serve_mcp.import_module') as load:
+        result = CliRunner().invoke(main, ['--schema-version', '4.2.2'], prog_name='k3q-arxml-mcp-00044')
+    assert result.exit_code == 2 and '--schema-version' in result.output
+    load.assert_not_called()

@@ -1,6 +1,6 @@
 # Python 编写与执行指南
 
-适用于 `k3q-arxml` 2.1.3 的 Python 对象接口及随包提供的 `ArxmlMcpService`。规则明确、目标可枚举、需要重复执行或检查多项结果时，可以将变更与验证写成任务脚本。先用交互 MCP 查明结构和引用，再将确认后的步骤固化；不必为已确定的每个节点反复调用工具。
+适用于 `k3q-arxml` 当前源码的独立版本模块（尚未发布）的 Python 对象接口及随包提供的 `ArxmlMcpService`。规则明确、目标可枚举、需要重复执行或检查多项结果时，可以将变更与验证写成任务脚本。先用交互 MCP 查明结构和引用，再将确认后的步骤固化；不必为已确定的每个节点反复调用工具。
 
 ## 选择接口和运行环境
 
@@ -14,19 +14,19 @@
 
 ```bash
 uv venv --python=3.11                     # 在当前目录创建 Python 3.11 的 .venv
-uv pip install "k3q-arxml[mcp]==2.1.3"      # 安装 ARXML 库及 MCP 依赖
+uv pip install "/path/to/k3q_arxml-2.1.3-py3-none-any.whl"      # 安装 ARXML 库及 MCP 依赖
 uv run python script.py                   # 运行编写好的脚本
 ```
 
-脚本使用其他第三方包时，按实际需要用 `uv pip install 包名` 补充安装。上述命令用于独立任务目录；源码仓库开发仍在仓库根目录执行 `uv sync --locked --extra mcp`，再用 `uv run python script.py ...` 运行，项目依赖按仓库规范管理。
+脚本使用其他第三方包时，按实际需要用 `uv pip install 包名` 补充安装。上述命令用于独立任务目录；源码仓库开发仍在仓库根目录执行 `uv sync --locked`，再用 `uv run python script.py ...` 运行，项目依赖按仓库规范管理。
 
 安装依赖与运行脚本使用同一个环境及其中已准备的绑定。脚本不会自动生成或切换绑定，也不会重启正在运行的服务。
 
-已发布 `2.1.3` 的 `mcp --schema-version` 使用独立临时包，不改变原环境的绑定。当前源码已改为直接原子替换库内的 `autosar.py`，所选版本会保留在该环境中，独立任务脚本的新进程也会使用它。执行前应输出实际环境的 `autosar.SCHEMA_VERSION` 核对；需要多个版本时分别使用独立环境。
+当前源码为每个版本提供独立模块，例如 `from k3q_arxml.schemas.autosar_00044 import autosar_00044`。通过 `binding=autosar_00044` 传给 `IOArxml`、`ArxmlFile` 或 `ArxmlMcpService`，解析、索引、复制和编辑均使用该绑定；必须显式传入 binding，库本身不导入任何版本。同一环境中的不同版本互不覆盖，不提供旧的 `autosar.py` 入口。以下示例明确使用 4.2.2；已发布的 2.1.3 使用旧接口，运行前应安装当前源码构建的 wheel。
 
 `ArxmlMcpService` 位于 `k3q_arxml.mcp.service`，可直接调用，不需要启动 stdio 或额外编写协议客户端。它是当前版本的服务接口；调用签名以实际安装版本为准。Python 直接调用不会经过 MCP SDK 的参数校验，显式传入正确类型：`Path` 工作目录、文件路径字符串列表、`McpPatchOperation` 对象列表和服务实际返回的 revision。
 
-任务脚本保存在用户指定的任务目录；不要改包内的 `autosar.py` 或 Skill 安装目录。保留 `main()` 和 `if __name__ == '__main__'`，导入脚本不得写文件或解析命令行参数。将变更、验证和保存分开，让同一套检查能用于预演和保存后复查。
+任务脚本保存在用户指定的任务目录；不要改包内的 `autosar_*.py` 或 Skill 安装目录。保留 `main()` 和 `if __name__ == '__main__'`，导入脚本不得写文件或解析命令行参数。将变更、验证和保存分开，让同一套检查能用于预演和保存后复查。
 
 ## 核心对象接口的写法
 
@@ -37,11 +37,12 @@ uv run python script.py                   # 运行编写好的脚本
 ```python
 from pathlib import Path
 
-from k3q_arxml import IOArxml, autosar
+from k3q_arxml import IOArxml
+from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
 
 
 def load_files(filepaths):
-    return IOArxml(filepaths=[Path(path).resolve() for path in filepaths])
+    return IOArxml(filepaths=[Path(path).resolve() for path in filepaths], binding=autosar)
 
 
 def set_uuid(io, ref, value):
@@ -77,13 +78,14 @@ def list_base_types(io):
 ```python
 from lxml import etree
 
-from k3q_arxml import autosar
-from k3q_arxml.schemas import SCHEMAS
+from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
+from pathlib import Path
 
 
 def validate_xsd(io):
     parser = etree.XMLParser(resolve_entities=False, load_dtd=False, no_network=True)
-    schema = etree.XMLSchema(etree.parse(str(SCHEMAS[autosar.SCHEMA_VERSION]), parser))
+    schema_path = Path(autosar.__file__).with_name(f'AUTOSAR_{autosar.SCHEMA_VERSION.replace(".", "-")}.xsd')
+    schema = etree.XMLSchema(etree.parse(str(schema_path), parser))
     for filepath, file in io.files.items():
         root = etree.fromstring(file.render().encode('utf-8'), parser)
         if not schema.validate(root):
@@ -134,7 +136,9 @@ def main(argv=None):
     parser.add_argument('--save', action='store_true')
     args = parser.parse_args(argv)
 
-    service = ArxmlMcpService(args.workspace)
+    from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2
+
+    service = ArxmlMcpService(args.workspace, binding=autosar_4_2_2)
     opened = service.open_project(args.files)
     print(opened.model_dump_json())
     project_id = opened.project_id

@@ -72,7 +72,7 @@ def clone_value(value: Any) -> Any:
 
 
 def clone_file(file: ArxmlFile) -> ArxmlFile:
-    return ArxmlFile().parse_autosar(
+    return ArxmlFile(binding=file.binding).parse_autosar(
         file.filepath,
         clone_value(file.root),
         file.header.xml_namespace,
@@ -208,6 +208,8 @@ def replace_object(file: ArxmlFile, old: Any, new: Any) -> ArxmlFile:
         named = named.arxml_parent
     if named is None:
         # 顶层包等没有具名祖先；这是新的候选文件初始化，不复用旧包装。
-        return ArxmlFile().parse_autosar(file.filepath, file.root, file.header.xml_namespace, file.header.xml_schema_location, file.format.indent, file.format.leading_comments)
+        return ArxmlFile(binding=file.binding).parse_autosar(
+            file.filepath, file.root, file.header.xml_namespace, file.header.xml_schema_location, file.format.indent, file.format.leading_comments
+        )
     named.edited()
     return file

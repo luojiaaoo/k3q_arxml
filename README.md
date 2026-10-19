@@ -25,20 +25,16 @@
 python -m pip install k3q-arxml
 ```
 
-需要使用 MCP 时安装可选依赖：
-
-```console
-python -m pip install "k3q-arxml[mcp]"
-```
+当前源码默认安装 MCP 依赖，构建并安装后即可使用 MCP 入口，无需额外选择安装项。已发布的 2.1.3 仍使用原来的可选依赖配置。
 
 也可以使用 [uv](https://docs.astral.sh/uv/getting-started/installation/) 管理自己的项目，在项目目录执行：
 
 ```console
 uv init --bare --python 3.11
-uv add "k3q-arxml[mcp]"
+uv add k3q-arxml
 ```
 
-已有 uv 项目时跳过 `uv init`；仅使用 Python 库时可改为 `uv add k3q-arxml`。后续命令以 uv 为例，pip 用户将 `uv run -m k3q_arxml ...` 改为 `python -m k3q_arxml ...`，运行脚本用 `python example.py`。uv 的依赖管理方式见 [官方项目指南](https://docs.astral.sh/uv/guides/projects/)。
+已有 uv 项目时跳过 `uv init`。后续运行脚本以 `uv run python example.py` 为例，pip 用户使用 `python example.py`。uv 的依赖管理方式见 [官方项目指南](https://docs.astral.sh/uv/guides/projects/)。
 
 ### 从源码安装开发环境
 
@@ -48,20 +44,27 @@ uv add "k3q-arxml[mcp]"
 uv sync --locked
 ```
 
-### 准备 AUTOSAR 绑定
+### 选择 AUTOSAR 绑定
 
-查看支持的 AUTOSAR 版本，并确认与 ARXML 文件匹配的版本。以下以已确认的 4.2.2 为例：
+当前源码已预生成全部支持版本的绑定，与对应 XSD 一起放在 `k3q_arxml/schemas/autosar_<版本>/` 中，例如 `autosar_4_2_2.py`、`autosar_00044.py`。用户直接选择所需模块，无需生成或切换文件；不提供旧的 autosar.py 兼容入口及 versions / generate 开发命令。
 
-```console
-uv run -m k3q_arxml versions
-uv run -m k3q_arxml generate 4.2.2
+仓库样例使用 4.2.2。其他文件可查看开头 xsi:schemaLocation 中的 XSD 文件名，例如 AUTOSAR_4-2-2.xsd 对应 4.2.2。MCP 启动命令与 schemas 下的版本目录一一对应，例如 autosar_00044 对应 k3q-arxml-mcp-00044。
+
+Python 中明确导入所需版本，并把模块传给文件或工程。例如处理 00044：
+
+```python
+from pathlib import Path
+from k3q_arxml import IOArxml
+from k3q_arxml.schemas.autosar_00044 import autosar_00044
+
+io = IOArxml([Path('types.arxml')], binding=autosar_00044)
+for node in io.ar(autosar_00044.SwBaseType):
+    print(node.ref)
 ```
 
-仓库自带样例使用 4.2.2。处理其他文件时，可查看文件开头 `xsi:schemaLocation` 中的 XSD 文件名来确认版本，例如 `AUTOSAR_4-2-2.xsd` 对应 `4.2.2`。
+`ArxmlFile(binding=autosar_00044)` 与 `ArxmlMcpService(workspace, binding=autosar_00044)` 使用同一写法。必须显式传入 binding，库本身不会导入任何 AUTOSAR 版本。各版本可以在同一环境中并存，不会互相覆盖。
 
-项目自带 4.2.2 绑定。更换版本时，停止现有服务，执行 `uv run -m k3q_arxml generate <版本>`，再重新启动 Python 脚本或交互环境。同一次运行中的文件应使用相同版本。
-
-仅启动 MCP 时，可直接指定 `mcp --schema-version <版本>`，无需先手动运行 `generate`；用法见下方 MCP 配置。当前源码会直接替换当前库的绑定，同一环境的 Python 脚本在新进程中也使用该版本。
+本 README 的独立模块与启动入口对应当前源码，尚未发布；已发布的 2.1.3 使用旧接口。请先从源码构建并安装 wheel，再使用下方新入口。
 
 ## 读取文件
 
@@ -70,10 +73,11 @@ uv run -m k3q_arxml generate 4.2.2
 ```python
 from pathlib import Path
 
-from k3q_arxml import IOArxml, autosar
+from k3q_arxml import IOArxml
+from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
 
 filepath = Path('test/ThrottlePositionControlComposition.arxml')
-io_arxml = IOArxml(filepaths=[filepath])
+io_arxml = IOArxml(filepaths=[filepath], binding=autosar)
 
 # 查找所有 SW-BASE-TYPE 节点，打印路径和名称。
 for node in io_arxml.ar(autosar.SwBaseType):
@@ -223,7 +227,7 @@ if node is not None:
 文件路径使用 `Path`，按实际文件位置替换下面的示例路径：
 
 ```python
-io_arxml = IOArxml(filepaths=[Path('types.arxml'), Path('interfaces.arxml')])
+io_arxml = IOArxml(filepaths=[Path('types.arxml'), Path('interfaces.arxml')], binding=autosar)
 
 # 后续还可以加入其他已有文件。
 io_arxml.append(Path('components.arxml'))
@@ -249,9 +253,10 @@ io_arxml.flush_to_file()
 ```python
 from pathlib import Path
 
-from k3q_arxml import ArxmlFile, autosar
+from k3q_arxml import ArxmlFile
+from k3q_arxml.schemas.autosar_4_2_2 import autosar_4_2_2 as autosar
 
-file = ArxmlFile().parse_file(Path('test/ThrottlePositionControlComposition.arxml'))
+file = ArxmlFile(binding=autosar).parse_file(Path('test/ThrottlePositionControlComposition.arxml'))
 for node in file.ar(autosar.SwBaseType):
     print(node.ref, node.short_name)
 
@@ -283,71 +288,40 @@ uv run python chg_adt_idt_name.py --help
 
 ## 通过 MCP 供大模型使用
 
-MCP 服务使用本地 stdio。安装 uv 后，可在业务模型目录直接运行，由 uv 准备 MCP 依赖。下面使用清华大学 PyPI 镜像加速包下载：
+MCP 服务使用本地 stdio。可以直接运行版本专用命令，例如 `k3q-arxml-mcp-00044` 或 `k3q-arxml-mcp-4-2-2`，无需填写版本参数。启动不接受版本参数，版本完全由命令名称决定。所有命令复用同一份启动代码，只导入选定版本的绑定，然后在同一进程启动服务。
 
-```console
-uv run --python 3.11 --default-index https://pypi.tuna.tsinghua.edu.cn/simple --with "k3q-arxml[mcp]==2.1.3" -m k3q_arxml mcp --schema-version 00044
+先在仓库构建，并安装到专用环境（PowerShell）：
+
+```powershell
+uv sync --locked
+uv build --no-sources --wheel --out-dir dist/local
+uv venv C:/arxml-env --python 3.11
+uv pip install --python C:/arxml-env/Scripts/python.exe "dist/local/k3q_arxml-2.1.3-py3-none-any.whl"
 ```
 
-`--default-index` 指定默认包索引，对 `--with` 安装的包及其依赖生效；删除该参数及其 URL 即使用默认 PyPI 源。参数说明见 [uv 官方文档](https://docs.astral.sh/uv/reference/cli/#uv-run--default-index)，镜像地址见 [清华镜像使用帮助](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)。
+安装后，Windows 的 `Scripts` 目录下会有每个版本的 `k3q-arxml-mcp-<版本>.exe`；Linux/macOS 位于环境的 bin 目录，名称不带 .exe。版本号中的点用连字符表示，例如 4.2.2 对应 `k3q-arxml-mcp-4-2-2`。`pyproject.toml` 的 `[project.scripts]` 将全部命令映射到 `k3q_arxml.script.serve_mcp:main`，无参数函数按命令名称确定固定版本，规则见 [Python 打包指南](https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#creating-executable-scripts)。
 
-首次启动需要下载依赖，后续启动会复用 uv 缓存中的包和环境，依赖变化或缓存清理后可能需要重新下载。该镜像只用于 Python 包；若本机没有 Python 3.11，uv 自动下载 Python 解释器时不使用此镜像，也可以提前安装 Python 3.11。
-
-Windows 下的分段计时、首次下载耗时及源码优化前后对比见 [MCP 启动耗时记录](docs/mcp-startup-performance.md)。
-
-`--schema-version 00044` 是传给本库 MCP 命令的 AUTOSAR 版本参数；`--with ...==2.1.3` 控制发行包版本，`--python 3.11` 控制 Python 版本。安装步骤由 uv 完成，AUTOSAR 绑定在服务启动前准备。
-
-从 `2.1.2` 起，发行包在 `k3q_arxml/bindings/` 中携带各版本预生成的 ZIP。当前源码在指定版本与当前绑定不同时，校验 ZIP 中的版本、XSD 和代码哈希，直接原子替换当前库的 `autosar.py`，再以新 Python 进程启动服务，不复制整个包到临时目录，启动时无需运行 xsdata。替换结果保留在源码或安装环境中；后续同版本启动会直接复用绑定及 Python 字节码缓存，不再解压或启动子进程。不传版本参数时使用最后准备的绑定。同一环境共享这份绑定，需要使用多个版本时分别安装到独立环境。
-
-上述直接覆盖行为属于当前源码的改动，尚未发布；下面固定安装的 `2.1.3` 仍使用临时包。已发布的 `2.1.2` / `2.1.3` 不修改原安装包，每次选择其他绑定时都会重新准备临时包。
-
-`2.1.1` 在指定其他版本时仍会运行 xsdata；升级到 `2.1.2` 后使用预生成 ZIP。
-
-该命令等待 MCP 客户端通过 stdin/stdout 通信，启动后不显示交互菜单。日志与错误写入 stderr。服务只访问启动目录及其子目录中的普通文件，文件路径会先解析为绝对路径。服务启动后使用固定版本。
-
-客户端配置示例。`--python 3.11` 选择项目验证使用的 Python，`--default-index` 使用国内镜像，`--with` 指定要安装的包；无需配置源码路径或 `PYTHONPATH`：
-
-Linux: 
+客户端可直接启动对应版本命令，args 留空，cwd 指向业务模型目录。例如 Windows：
 
 ```json
 {
   "mcpServers": {
     "arxml": {
-      "command": "uv",
-      "args": [
-        "run", "--python", "3.11",
-        "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
-        "--with", "k3q-arxml[mcp]==2.1.3",
-        "-m", "k3q_arxml", "mcp",
-        "--schema-version", "00044"
-      ]
+      "command": "C:/arxml-env/Scripts/k3q-arxml-mcp-00044.exe",
+      "args": [],
+      "cwd": "D:/models"
     }
   }
 }
 ```
 
-Windows:
+Linux/macOS 将 command 改为环境的 `/path/to/env/bin/k3q-arxml-mcp-00044`，并填写模型目录。需要其他版本时改用对应版本的命令，再重新连接服务。args 留空，启动命令不接受 --schema-version 参数。
 
-```json
-{
-  "mcpServers": {
-    "arxml": {
-      "command": "cmd",
-      "args": [
-        "/c", "uv", "run", "--python", "3.11",
-        "--default-index", "https://pypi.tuna.tsinghua.edu.cn/simple",
-        "--with", "k3q-arxml[mcp]==2.1.3",
-        "-m", "k3q_arxml", "mcp",
-        "--schema-version", "00044"
-      ]
-    }
-  }
-}
-```
+全部版本命令复用 `k3q_arxml/script/serve_mcp.py` 中的无参数入口。源码开发后按本节步骤构建并安装 wheel，即可使用这些命令；客户端工作目录仍为业务模型目录。
 
-服务由客户端启动，无需再手动运行第二个 stdio 服务。服务以客户端启动进程时的工作目录作为文件范围；若需指定业务模型目录，可使用客户端的 `cwd` 设置。
+启动过程只读取选定的 Python 模块，不解压 ZIP、不修改安装目录、不通过 `-m k3q_arxml` 或子进程再次启动。不同版本的服务可使用同一个安装环境。服务启动后版本固定，文件访问范围为启动目录及子目录，日志和诊断写入 stderr，stdout 仅用于 MCP 协议。服务由客户端启动，无需手动再启动第二个服务。
 
-uv 自动发现启动目录或上级目录中的项目，`--with` 指定的包及其依赖由 uv 在临时环境中提供，环境由 uv 缓存管理并可复用。业务模型目录通过客户端的 `cwd` 指定，包的安装位置以服务返回的实际路径为准。用户启动前的准备说明见 [技能说明](skills/arxml-mcp/SKILL.md#用户启动前准备)。
+历史发布版本的启动计时见 [MCP 启动耗时记录](docs/mcp-startup-performance.md)，其中旧实现的数据不代表当前统一入口。
 
 ### 安装随包提供的 Skill
 

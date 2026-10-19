@@ -1,4 +1,4 @@
-"""ARXML 编辑库；使用前通过 CLI 生成当前版本的 autosar 模块。"""
+"""ARXML 编辑库；各版本类型通过 autosar_<版本> 模块独立导入。"""
 
 from .arxml_file import ArxmlFile, get_xml_metadata, ref2str, str2ref
 from .k3q_arxml import IOArxml

@@ -1,4 +1,3 @@
-import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,16 +57,16 @@ class Container:
 
 class TestScanRef:
     @pytest.fixture(autouse=True)
-    def setup_binding(self, monkeypatch):
-        # 用小型 dataclass 绑定验证遍历规则，不依赖本地是否生成了 autosar.py。
-        binding = ModuleType('k3q_arxml.autosar')
+    def setup_binding(self):
+        # 用小型 dataclass 绑定验证遍历规则，显式替换测试使用的绑定模块。
+        binding = ModuleType('k3q_arxml.schemas.autosar_4_2_2.autosar_4_2_2')
         binding.SCHEMA_VERSION = 'test'
         binding.Autosar = Container
         binding.Ref = Reference
-        monkeypatch.setitem(sys.modules, 'k3q_arxml.autosar', binding)
+        self.binding = binding
 
     def scan(self, root):
-        return ArxmlFile().parse_autosar(Path('scan.arxml'), root)
+        return ArxmlFile(binding=self.binding).parse_autosar(Path('scan.arxml'), root)
 
     def test_rejects_dataclass_without_instance_dict(self):
         @dataclass(slots=True)
@@ -342,7 +341,7 @@ class TestScanRef:
         target = NamedNode(Text('Target'), uuid='old-id')
         reference = Reference('/Target')
         target_file = self.scan(target)
-        source_file = ArxmlFile().parse_autosar(Path('source.arxml'), NamedNode(Text('Source'), child=reference))
+        source_file = ArxmlFile(binding=self.binding).parse_autosar(Path('source.arxml'), NamedNode(Text('Source'), child=reference))
         previous_target = target_file.index
         previous_source = source_file.index
 

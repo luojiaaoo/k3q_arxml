@@ -1,11 +1,11 @@
-"""ARXML 数据模型及可用 AUTOSAR XSD 的发现。"""
+"""ARXML 核心数据模型和类型别名。"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Tuple, TypeAlias, TypeVar, cast
+from typing import Any, Generic, Protocol, Tuple, TypeAlias, TypeVar, cast
 
 from pydantic import BaseModel
 from xsdata.formats.dataclass.models.generics import DerivedElement
@@ -14,13 +14,19 @@ from xsdata.formats.dataclass.serializers.config import SerializerConfig
 from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 from xsdata.utils.namespaces import split_qname
 
-if TYPE_CHECKING:
-    from .autosar import Ref  # noqa: F401 -- 用于基类的前向引用。
-
 TupleRef: TypeAlias = Tuple[str, ...]
 Filepath: TypeAlias = Path
 Uuid: TypeAlias = str
 T = TypeVar('T')
+
+
+class ArxmlReference(Protocol):
+    """各版本 XML 引用节点共同提供的可读写目标路径。"""
+
+    value: str
+
+
+RefT = TypeVar('RefT', bound=ArxmlReference)
 
 
 class ArxmlFormat(BaseModel):
@@ -79,7 +85,7 @@ class ArxmlNamedNode(ArxmlNode[T]):
 
 
 @dataclass
-class ArxmlRefNode(ArxmlNode['Ref']):
+class ArxmlRefNode(ArxmlNode[RefT]):
     """一处反向引用，保存实际 XML 引用节点及其来源位置。
 
     Attributes:
@@ -91,33 +97,15 @@ class ArxmlRefNode(ArxmlNode['Ref']):
 
     def set_dest(self, ref: TupleRef) -> None:
         """将目标路径元组转换为 XML 引用路径，写入实际引用节点。"""
-        from .arxml_file import ref2str
+        from ..arxml_file import ref2str
 
         self.xml_obj.value = ref2str(ref)
 
 
 @dataclass
-class ArxmlIndex:
+class ArxmlIndex(Generic[RefT]):
     """统一保存单个文件或扫描子树的对象、反向引用和 UUID 索引。"""
 
     objects: dict[TupleRef, ArxmlNamedNode[Any]] = field(default_factory=dict)  # 按 AUTOSAR 路径索引的对象。
-    references: dict[TupleRef, list[ArxmlRefNode]] = field(default_factory=dict)  # 按目标路径索引的引用节点及其来源路径。
+    references: dict[TupleRef, list[ArxmlRefNode[RefT]]] = field(default_factory=dict)  # 按目标路径索引的引用节点及其来源路径。
     uuids: dict[Uuid, TupleRef] = field(default_factory=dict)  # 按 UUID 索引的对象路径。
-
-
-PACKAGE_ROOT = Path(__file__).resolve().parent
-SCHEMA_ROOT = PACKAGE_ROOT / 'schemas'
-
-
-def discover_schemas(root: Path = SCHEMA_ROOT) -> dict[str, Path]:
-    """扫描 autosar_* 目录，只列出存在对应主 XSD 文件的版本。"""
-    schemas = {}
-    for directory in sorted(root.glob('autosar_*')):
-        version = directory.name.removeprefix('autosar_')
-        schema = directory / f'AUTOSAR_{version.replace("_", "-")}.xsd'
-        if schema.is_file():
-            schemas[version.replace('_', '.')] = schema
-    return schemas
-
-
-SCHEMAS = discover_schemas()

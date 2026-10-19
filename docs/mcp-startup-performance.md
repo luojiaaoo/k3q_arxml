@@ -1,5 +1,7 @@
 # Windows MCP 启动耗时记录
 
+> 本文记录历史 ZIP / 替换绑定实现的计时。当前源码已改为全部 autosar_<版本>.py 与 Scripts / bin 下的 k3q-arxml-mcp-<版本> 免参数命令，所有命令复用同一入口，启动不解压、不改写绑定、不启动子进程；下文计时尚未针对新实现重测。
+
 测量日期：2026-10-16。环境：Windows、uv 0.10.8、Python 3.11；MCP SDK 2.3.0、xsdata 26.2、Pydantic 2.14.1。时间使用 `time.perf_counter()`，从客户端启动 uv 子进程前开始，到 `initialize()` 和 `list_tools()` 均完成为止，不含测量客户端自身的 Python 导入时间。所有成功样本均列出 13 个工具。
 
 ## 用户命令与发行包基线
