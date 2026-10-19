@@ -17,7 +17,7 @@
 
 ## 安装
 
-要求 Python 3.11+。**使用 MCP 前必须先把本库安装进系统级 Python 环境**（MCP 进程由智能体客户端拉起，依赖系统环境里的命令）。
+要求 Python 3.11+。使用 MCP 前须先把本库装进持久化环境（环境要求见 [MCP 配置](#mcp-配置)）。
 
 从 PyPI 安装：
 
@@ -167,7 +167,7 @@ io.flush_to_file()
 
 ### 前提
 
-1. **使用系统级 Python 环境**，不要用项目私有 venv——MCP 由智能体客户端独立拉起进程。
+1. **使用持久化的 Python 环境**：系统级 Python 或项目的 `.venv` 均可，但必须预先建好环境并安装本库——MCP 由智能体客户端独立拉起进程。用项目 venv 时通过 `uv run` 调起命令（如 `["/c", "uv", "run", "k3q-arxml-mcp-00044"]`）。本库内置 11 个版本的完整 schema 绑定，包体积较大，**不要用 `uvx`、`uv run --with` 这类临时环境语法启动**——每次拉起都要现场解析安装，很容易导致 MCP 启动超时。
 2. **启动 MCP 之前先安装本库**：`python -m pip install k3q-arxml`，确认 `k3q-arxml-mcp-<版本>` 命令可用。
 3. 按 ARXML 的 schema 版本选择命令；文件头 `xsi:schemaLocation="... AUTOSAR_00044.xsd"` → `k3q-arxml-mcp-00044`。
 
@@ -180,7 +180,8 @@ io.flush_to_file()
   "mcpServers": {
     "k3q-arxml-00044": {
       "command": "cmd",
-      "args": ["/c", "k3q-arxml-mcp-00044"]
+      "args": ["/c", "k3q-arxml-mcp-00044"],
+      "env": { "PYTHONUTF8": "1" }
     }
   }
 }

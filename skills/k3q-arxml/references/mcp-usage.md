@@ -2,61 +2,7 @@
 
 k3q-arxml 的 MCP 服务按 AUTOSAR 版本拆分，一个命令绑定一个 schema 版本，通过 stdio 与智能体客户端通信。
 
-## 配置与启动
-
-### 前提
-
-1. **系统级 Python 环境**：MCP 进程由客户端拉起，找不到项目 venv。用系统 Python 安装：
-   ```bash
-   python -m pip install k3q-arxml
-   ```
-   升级：`python -m pip install --upgrade k3q-arxml`
-   安装后 Scripts 目录生成 `k3q-arxml-mcp-<版本>` 系列命令。验证：
-   ```bash
-   python -c "import k3q_arxml; print(k3q_arxml.__file__)"
-   k3q-arxml-mcp-00044 --help
-   ```
-2. **按文件版本选命令**：看 arxml 文件头 `xsi:schemaLocation` 里的 XSD 文件名。
-   - `AUTOSAR_00044.xsd` → `k3q-arxml-mcp-00044`
-   - `AUTOSAR_4-2-2.xsd` → `k3q-arxml-mcp-4-2-2`
-   - 其余 `00043` ~ `00052` 同规律。
-
-### Windows 配置（`.mcp.json` / `claude_desktop_config.json`）
-
-**Windows 上必须通过 `cmd /c` 启动**，由 cmd 解析 Scripts 下的命令，不要把 `k3q-arxml-mcp-*` 直接写成 `command`：
-
-```json
-{
-  "mcpServers": {
-    "k3q-arxml-00044": {
-      "command": "cmd",
-      "args": ["/c", "k3q-arxml-mcp-00044"],
-      "env": { "PYTHONUTF8": "1" }
-    }
-  }
-}
-```
-
-要点：
-
-- `command` 固定 `cmd`，实际命令放在 `args` 的 `/c` 之后。
-- 命令不在 PATH 时写全路径：`["/c", "C:\\Python311\\Scripts\\k3q-arxml-mcp-00044"]`。
-- 建议 `env` 里加 `PYTHONUTF8: "1"`，避免中文路径/日志乱码。
-- **工作目录 = 服务启动目录**：`open_project` 只能加载该目录及子目录内的 arxml，外部路径一律拒绝（`OUTSIDE_WORKSPACE`）。在工程目录下启动客户端，或按客户端能力指定 `cwd`。
-- 需要多个版本就并列配置多个 server，如 `k3q-arxml-00044` 与 `k3q-arxml-4-2-2`。
-
-Linux / macOS：
-
-```json
-{
-  "mcpServers": {
-    "k3q-arxml-00044": {
-      "command": "k3q-arxml-mcp-00044",
-      "args": []
-    }
-  }
-}
-```
+约定：工作目录 = 服务启动目录，`open_project` 只能加载该目录及子目录内的 arxml，外部路径一律拒绝（`OUTSIDE_WORKSPACE`）。
 
 ## 工具清单（14 个）
 

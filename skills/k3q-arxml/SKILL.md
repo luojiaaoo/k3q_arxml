@@ -30,7 +30,7 @@ k3q-arxml 提供两条互补的 ARXML 处理路径，先判断任务形态再选
 
 ## MCP 快速入口
 
-Windows 下 MCP 必须经 `cmd /c` 启动，且启动前把 k3q-arxml 装进**系统级 Python**（不是项目 venv）：
+Windows 下 MCP 必须经 `cmd /c` 启动，且 k3q-arxml 要预先装进**持久化的 Python 环境**（系统环境或项目 `.venv` 均可；项目 venv 用 `uv run` 调起命令）：本库体积较大，`uvx`、`uv run --with` 等临时环境语法容易导致 MCP 启动超时，必须预先安装。
 
 ```json
 {
