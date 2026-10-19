@@ -76,13 +76,13 @@ git status --short
 
 ## 构建与检查发行文件
 
-使用本次版本的独立输出目录，避免上传旧版本文件（以下以 `2.1.3` 为例）：
+使用本次版本的独立输出目录，避免上传旧版本文件（以下以 `2.2.0` 为例）：
 
 ```powershell
-uv build --no-sources --out-dir dist/2.1.3
-uvx --from twine twine check --strict dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
-uv run python -m zipfile -l dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl
-uv run python -m tarfile -l dist/2.1.3/k3q_arxml-2.1.3.tar.gz
+uv build --no-sources --out-dir dist/2.2.0
+uvx --from twine twine check --strict dist/2.2.0/*.whl dist/2.2.0/*.tar.gz
+uv run python -m zipfile -l dist/2.2.0/k3q_arxml-2.2.0-py3-none-any.whl
+uv run python -m tarfile -l dist/2.2.0/k3q_arxml-2.2.0.tar.gz
 ```
 
 应得到一个 wheel 和一个 sdist。确认两者包含：覆盖全部 schema 的 `autosar_<版本>.py`、`script/serve_mcp.py`、MCP 子包、全部 XSD 和完整技能目录 `k3q_arxml/assets/skills/k3q-arxml`；wheel 的 console_scripts 中仅包含覆盖全部 schema 的版本专用命令，且都映射到同一启动函数。不应包含临时 ARXML、备份或恢复清单。
@@ -92,7 +92,7 @@ uv run python -m tarfile -l dist/2.1.3/k3q_arxml-2.1.3.tar.gz
 在独立临时环境安装 wheel，避免误用仓库源码：
 
 ```powershell
-$wheel = (Resolve-Path 'dist/2.1.3/k3q_arxml-2.1.3-py3-none-any.whl').Path
+$wheel = (Resolve-Path 'dist/2.2.0/k3q_arxml-2.2.0-py3-none-any.whl').Path
 $checkDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-release-' + [guid]::NewGuid())
 uv venv $checkDir --python 3.11
 $checkPython = Join-Path $checkDir 'Scripts/python.exe'
@@ -114,7 +114,7 @@ uv pip install --python $checkPython "$wheel"
 $publishSecret = Read-Host 'TestPyPI API token' -AsSecureString
 $env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
 try {
-    uv publish --publish-url https://test.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+    uv publish --publish-url https://test.pypi.org/legacy/ dist/2.2.0/*.whl dist/2.2.0/*.tar.gz
     if ($LASTEXITCODE -ne 0) { throw 'TestPyPI 上传失败' }
 } finally {
     Remove-Item Env:UV_PUBLISH_TOKEN
@@ -128,7 +128,7 @@ $testDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-testpypi-' + 
 uv venv $testDir --python 3.11
 $testPython = Join-Path $testDir 'Scripts/python.exe'
 uv pip install --python $testPython "$wheel"
-uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.1.3'
+uv pip install --python $testPython --no-deps --reinstall --index-url https://test.pypi.org/simple/ 'k3q-arxml==2.2.0'
 & $testPython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
 ```
 
@@ -136,13 +136,13 @@ uv pip install --python $testPython --no-deps --reinstall --index-url https://te
 
 ## 上传正式 PyPI
 
-完成发行文件检查和独立环境安装验证后，先提交发布内容、创建版本标签（如 `v2.1.3`）并推送远程仓库，再使用正式 PyPI 创建的 token 上传已经验证过的同一组文件。配置了 TestPyPI 时，可先完成上一节的测试发布。
+完成发行文件检查和独立环境安装验证后，先提交发布内容、创建版本标签（如 `v2.2.0`）并推送远程仓库，再使用正式 PyPI 创建的 token 上传已经验证过的同一组文件。配置了 TestPyPI 时，可先完成上一节的测试发布。
 
 ```powershell
 $publishSecret = Read-Host 'PyPI API token' -AsSecureString
 $env:UV_PUBLISH_TOKEN = [System.Net.NetworkCredential]::new('', $publishSecret).Password
 try {
-    uv publish --publish-url https://upload.pypi.org/legacy/ dist/2.1.3/*.whl dist/2.1.3/*.tar.gz
+    uv publish --publish-url https://upload.pypi.org/legacy/ dist/2.2.0/*.whl dist/2.2.0/*.tar.gz
     if ($LASTEXITCODE -ne 0) { throw 'PyPI 上传失败' }
 } finally {
     Remove-Item Env:UV_PUBLISH_TOKEN
@@ -155,7 +155,7 @@ try {
 $releaseDir = Join-Path ([System.IO.Path]::GetTempPath()) ('k3q-arxml-pypi-' + [guid]::NewGuid())
 uv venv $releaseDir --python 3.11
 $releasePython = Join-Path $releaseDir 'Scripts/python.exe'
-uv pip install --python $releasePython 'k3q-arxml==2.1.3'
+uv pip install --python $releasePython 'k3q-arxml==2.2.0'
 & $releasePython -I -c "from k3q_arxml import IOArxml; from k3q_arxml.schemas import autosar_4_2_2 as autosar; print(autosar.SCHEMA_VERSION)"
 ```
 
