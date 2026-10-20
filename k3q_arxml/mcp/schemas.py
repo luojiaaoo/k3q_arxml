@@ -61,6 +61,14 @@ class McpProjectInfo(McpProjectResult):
     reference_scope: str = '仅覆盖本会话中已加载的文件。'
 
 
+class McpOpenProjectResult(McpProjectResult):
+    schema_version: str
+    files: list[McpFileInfo]
+    diagnostic_codes: list[str] = Field(default_factory=list, description='加载问题的去重类型列表，包含错误和警告，不返回问题详情。')
+    diagnostics_hint: str = '查看完整加载问题请调用 project_info(project_id)；校验当前问题请调用 validate_project(project_id)。'
+    reference_scope: str = '仅覆盖本会话中已加载的文件。'
+
+
 class McpNodeInfo(McpModel):
     file_id: str
     ref: str

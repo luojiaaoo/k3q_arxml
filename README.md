@@ -215,7 +215,7 @@ Linux / macOS 直接调用命令：
 | 工具 | 作用 |
 | --- | --- |
 | `get_skill_path` | 返回内置使用手册（`k3q_arxml/assets/skills/k3q-arxml`）目录，操作 ARXML 前优先阅读 |
-| `open_project` | 加载指定的 ARXML 文件集合，建立工程会话 |
+| `open_project` | 加载指定的 ARXML 文件集合，建立工程会话；仅返回问题类型 `diagnostic_codes`，完整加载问题用 `project_info(project_id)` 查看 |
 | `project_info` | 查看工程 revision、文件清单、未保存状态、加载诊断 |
 | `find_nodes` | 按 XML 标签 / 名称子串 / 路径前缀查找具名节点 |
 | `get_node` | 读取节点摘要与 XML（可分页、可 XPath 限定） |
