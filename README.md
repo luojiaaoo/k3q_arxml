@@ -212,6 +212,8 @@ Linux / macOS 直接调用命令：
 
 ### MCP 工具一览
 
+工具响应中的 JSON 文本使用两空格缩进、逐行输出，便于按字段搜索。
+
 | 工具 | 作用 |
 | --- | --- |
 | `get_skill_path` | 返回内置使用手册（`k3q_arxml/assets/skills/k3q-arxml`）目录，操作 ARXML 前优先阅读 |

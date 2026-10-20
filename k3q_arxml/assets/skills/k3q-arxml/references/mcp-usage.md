@@ -4,6 +4,8 @@ k3q-arxml 的 MCP 服务按 AUTOSAR 版本拆分，一个命令绑定一个 sche
 
 约定：工作目录 = 服务启动目录，`open_project` 只能加载该目录及子目录内的 arxml，外部路径一律拒绝（`OUTSIDE_WORKSPACE`）。
 
+工具响应中的 JSON 文本（包括业务错误）使用两空格缩进、逐行输出，便于按字段搜索；成功响应同时提供 structured_content。
+
 ## 工具清单（14 个）
 
 | 工具 | 类型 | 作用 |

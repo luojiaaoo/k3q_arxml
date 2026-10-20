@@ -894,6 +894,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert missing.is_error and json.loads(missing.content[0].text)['code'] == 'SOURCE_NOT_FOUND'
                 skill = await client.call_tool('get_skill_path', {})
                 assert not skill.is_error, skill.content
+                assert skill.content[0].text == json.dumps(skill.structured_content, ensure_ascii=False, indent=2)
                 skill_path = Path(skill.structured_content['result'])
                 assert (skill_path / 'SKILL.md').is_file()
                 assert skill_path == runtime / 'k3q_arxml/assets/skills/k3q-arxml'
@@ -901,6 +902,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert outside.is_error and json.loads(outside.content[0].text)['code'] == 'OUTSIDE_WORKSPACE'
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in [*paths, network]]})
                 assert not opened.is_error, opened.content
+                assert opened.content[0].text == json.dumps(opened.structured_content, ensure_ascii=False, indent=2)
                 assert opened.structured_content['schema_version'] == schema_version
                 mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
                 assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
@@ -912,6 +914,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                     assert frames.structured_content['items'][0]['ref'] == '/SystemWeaver/Frames/PDCU_SwFB_P'
                     assert frames.structured_content['items'][0]['file_id'] == 'f3'
                     assert json.loads(frames.content[0].text) == frames.structured_content
+                    assert frames.content[0].text == json.dumps(frames.structured_content, ensure_ascii=False, indent=2)
                 for query, code in (
                     ({'xml_tag': 'CAN-Frame'}, 'XML_TAG_CASE_MISMATCH'),
                     ({'xml_tag': 'No-Such-Tag', 'ref_prefix': '/Missing'}, 'XML_TAG_CASE_MISMATCH'),
@@ -925,6 +928,7 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 assert found.structured_content['total'] == 1
                 error = await client.call_tool('get_node', {'project_id': project_id, 'ref': '/Missing'})
                 assert error.is_error and json.loads(error.content[0].text)['code'] == 'NODE_NOT_FOUND'
+                assert error.content[0].text == json.dumps(json.loads(error.content[0].text), ensure_ascii=False, indent=2)
                 changed = await client.call_tool('rename_node', {'project_id': project_id, 'ref': '/Types', 'new_name': 'Updated', 'revision': 0})
                 assert not changed.is_error and changed.structured_content['updated_references'] == 2
                 patched = await client.call_tool(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from functools import wraps
 from inspect import signature
 from pathlib import Path
@@ -12,7 +13,7 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from ..log import logger
-from .schemas import McpError
+from .schemas import McpError, McpModel
 from .service import ArxmlMcpService
 from .xml import McpServiceError
 
@@ -22,7 +23,12 @@ def _tool(service: ArxmlMcpService, method):
     def execute(*args, **kwargs):
         try:
             with service.lock:
-                return method(*args, **kwargs)
+                result = method(*args, **kwargs)
+                payload = result.model_dump(mode='json') if isinstance(result, McpModel) else {'result': result}
+                return CallToolResult(
+                    content=[TextContent(type='text', text=json.dumps(payload, ensure_ascii=False, indent=2))],
+                    structured_content=payload,
+                )
         except McpServiceError as exc:
             error = exc.error
         except (ValueError, TypeError, OSError) as exc:
@@ -30,7 +36,7 @@ def _tool(service: ArxmlMcpService, method):
         except Exception:
             logger.exception('MCP 工具 {} 执行失败', method.__name__)
             error = McpError(code='INTERNAL_ERROR', message='工具执行失败。', suggestion='查看服务 stderr 日志并报告问题；保存失败时先检查恢复清单。')
-        return CallToolResult(is_error=True, content=[TextContent(type='text', text=error.model_dump_json())])
+        return CallToolResult(is_error=True, content=[TextContent(type='text', text=error.model_dump_json(indent=2))])
 
     # 保留可读的类型化协议；适配函数的全局空间没有 service 中的前向引用。
     hints = get_type_hints(method, include_extras=True)
