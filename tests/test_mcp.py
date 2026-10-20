@@ -63,7 +63,7 @@ def test_startup_defers_xsd_compilation_and_reuses_it_for_validation(tmp_path, m
     # 延后编译仍须报告真实的 XSD 错误，而非跳过加载和后续校验。
     filepath.write_text(document('Types', datatype('Invalid Name')), encoding='utf-8')
     invalid = service.open_project([filepath.name])
-    assert 'XSD_ERROR' in invalid.diagnostic_codes
+    assert any(item.code == 'XSD_ERROR' for item in invalid.diagnostics)
     assert len(compiled) == 1
 
 
@@ -114,25 +114,6 @@ def test_open_project_adds_all_files_with_one_core_global_validation(project, mo
     assert calls == [[str(path) for path in paths]]
 
 
-def test_open_project_returns_problem_types_and_preserves_details(project):
-    service, _, paths = project
-    paths[0].write_text(document('Types', datatype('Invalid Name') + datatype('Also Invalid')), encoding='utf-8')
-    opened = service.open_project([str(path) for path in paths])
-    payload = opened.model_dump()
-    assert payload['diagnostic_codes'] == ['UNRESOLVED_REFERENCE', 'XSD_ERROR']
-    assert 'diagnostics' not in payload
-    assert 'project_info(project_id)' in payload['diagnostics_hint']
-
-    details = service.project_info(opened.project_id)
-    assert details.revision == opened.revision == 0
-    assert details.schema_version == opened.schema_version
-    assert details.files == opened.files
-    errors = [item for item in details.diagnostics if item.code == 'XSD_ERROR']
-    warnings = [item for item in details.diagnostics if item.code == 'UNRESOLVED_REFERENCE']
-    assert len(errors) >= 2 and all(item.message and item.severity == 'error' and item.line for item in errors)
-    assert len(warnings) == 2 and all(item.message and item.severity == 'warning' and item.xpath for item in warnings)
-
-
 @pytest.fixture
 def shared_project(project):
     service, _, paths = project
@@ -148,7 +129,7 @@ def shared_project(project):
 
 def test_shared_packages_support_queries_edits_validation_and_reload(shared_project):
     service, info, paths = shared_project
-    assert not info.diagnostic_codes
+    assert not info.diagnostics
     packages = service.find_nodes(info.project_id, xml_tag='AR-PACKAGE', ref_prefix='/Types')
     assert [(node.file_id, node.ref) for node in packages.items] == [('f1', '/Types'), ('f2', '/Types')]
     assert service.get_node(info.project_id, '/Types/Other').node.file_id == 'f2'
@@ -161,7 +142,7 @@ def test_shared_packages_support_queries_edits_validation_and_reload(shared_proj
     assert service.validate_project(info.project_id).valid
     service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
     reloaded = service.open_project([str(path) for path in paths])
-    assert not reloaded.diagnostic_codes
+    assert not reloaded.diagnostics
     assert service.validate_project(reloaded.project_id).valid
 
 
@@ -220,7 +201,7 @@ def test_shared_non_package_intermediate_nodes_are_allowed(project):
     variables[1].getparent().remove(variables[1])
     paths[1].write_bytes(etree.tostring(root))
     info = service.open_project([str(path) for path in paths] + [str(other)])
-    assert not info.diagnostic_codes
+    assert not info.diagnostics
     assert service.find_nodes(info.project_id, xml_tag='SENDER-RECEIVER-INTERFACE').total == 2
     assert service.find_nodes(info.project_id, xml_tag='VARIABLE-DATA-PROTOTYPE').total == 2
     assert service.validate_project(info.project_id).valid
@@ -235,7 +216,7 @@ def test_empty_schema_containers_and_nonleaf_types_can_repeat(project):
     assert service.validate_project(info.project_id).valid
     other.write_bytes(paths[0].read_bytes())
     info = service.open_project([str(paths[0]), str(other)])
-    assert not info.diagnostic_codes
+    assert not info.diagnostics
     assert service.find_nodes(info.project_id, name='Speed').total == 2
 
 
@@ -280,7 +261,7 @@ def test_find_nodes_through_nested_packages_and_elements(tmp_path):
     other.write_text(document('Other', frame), encoding='utf-8')
     service = ArxmlMcpService(tmp_path, binding=autosar)
     info = service.open_project([network.name, other.name])
-    assert not info.diagnostic_codes
+    assert not info.diagnostics
 
     expected_ref = '/SystemWeaver/Frames/PDCU_SwFB_P'
     assert service.find_nodes(info.project_id, xml_tag='CAN-FRAME').total == 3
@@ -457,7 +438,7 @@ def test_new_unresolved_or_wrong_dest_reference_is_rejected(project, value, attr
 def test_existing_unloaded_references_are_warnings(project):
     service, _, paths = project
     info = service.open_project([str(paths[1])])
-    assert info.diagnostic_codes == ['UNRESOLVED_REFERENCE']
+    assert any(item.code == 'UNRESOLVED_REFERENCE' for item in info.diagnostics)
     validation = service.validate_project(info.project_id)
     assert validation.valid and len(validation.diagnostics) == 2
     result = patch(service, info, '/Interfaces/Interface', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'updated'}])
@@ -661,7 +642,7 @@ def test_parseable_invalid_xsd_can_be_loaded_and_repaired(project):
     service, _, paths = project
     paths[0].write_text(document('Types', datatype('9Speed')), encoding='utf-8')
     info = service.open_project([str(paths[0])])
-    assert 'XSD_ERROR' in info.diagnostic_codes
+    assert any(item.code == 'XSD_ERROR' for item in info.diagnostics)
     with pytest.raises(McpServiceError):
         patch(service, info, '/Types/9Speed', [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'still-invalid'}])
     service.rename_node(info.project_id, '/Types/9Speed', 'Speed', 0)
@@ -736,8 +717,7 @@ def test_version_mismatch_warns_and_allows_query_edit_and_save(project, version)
     mismatched.write_text(paths[0].read_text(encoding='utf-8').replace('AUTOSAR_4-2-2.xsd', f'AUTOSAR_{version}.xsd'), encoding='utf-8')
     original = mismatched.read_bytes()
     info = service.open_project([str(mismatched)])
-    assert 'SCHEMA_MISMATCH' in info.diagnostic_codes
-    warnings = [item for item in service.project_info(info.project_id).diagnostics if item.code == 'SCHEMA_MISMATCH']
+    warnings = [item for item in info.diagnostics if item.code == 'SCHEMA_MISMATCH']
     assert len(warnings) == 1 and warnings[0].severity == 'warning'
     assert warnings[0].file_id == 'f1' and warnings[0].ref == '/'
     assert version in warnings[0].message and info.schema_version in warnings[0].message
@@ -753,8 +733,7 @@ def test_version_mismatch_warns_and_allows_query_edit_and_save(project, version)
     assert Path(saved.files[0].backup_path).read_bytes() == original
     reloaded = service.open_project([str(mismatched)])
     assert service.get_node(reloaded.project_id, '/Types/Velocity').node.short_name == 'Velocity'
-    assert 'SCHEMA_MISMATCH' in reloaded.diagnostic_codes
-    assert warnings[0] in service.project_info(reloaded.project_id).diagnostics
+    assert warnings[0] in reloaded.diagnostics
     schema_location = read_xml(mismatched.read_bytes()).get('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation')
     assert schema_location == f'{NAMESPACE} AUTOSAR_{version}.xsd'
 
@@ -870,9 +849,6 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 listed = await client.list_tools()
                 assert len(listed.tools) == 14
                 assert all(tool.input_schema and tool.output_schema for tool in listed.tools)
-                open_tool = next(tool for tool in listed.tools if tool.name == 'open_project')
-                assert 'diagnostic_codes' in open_tool.output_schema['properties']
-                assert 'diagnostics' not in open_tool.output_schema['properties']
                 source_tool = next(tool for tool in listed.tools if tool.name == 'get_type_source')
                 assert source_tool.annotations.read_only_hint
                 assert source_tool.input_schema['properties']['limit']['maximum'] == 32_000
@@ -893,14 +869,9 @@ def test_real_stdio_tools_errors_edit_preview_and_save(project, schema_version):
                 opened = await client.call_tool('open_project', {'filepaths': [path.name for path in [*paths, network]]})
                 assert not opened.is_error, opened.content
                 assert opened.structured_content['schema_version'] == schema_version
-                assert 'SCHEMA_MISMATCH' in opened.structured_content['diagnostic_codes']
-                assert 'diagnostics' not in opened.structured_content
-                assert 'project_info(project_id)' in opened.structured_content['diagnostics_hint']
-                project_id = opened.structured_content['project_id']
-                details = await client.call_tool('project_info', {'project_id': project_id})
-                assert not details.is_error, details.content
-                mismatch = [item for item in details.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
+                mismatch = [item for item in opened.structured_content['diagnostics'] if item['code'] == 'SCHEMA_MISMATCH']
                 assert len(mismatch) == 1 and mismatch[0]['severity'] == 'warning'
+                project_id = opened.structured_content['project_id']
                 for query in ({'xml_tag': 'CAN-FRAME'}, {'xml_tag': 'CAN-FRAME', 'ref_prefix': '/SystemWeaver/Frames'}):
                     frames = await client.call_tool('find_nodes', {'project_id': project_id, **query})
                     assert not frames.is_error

@@ -33,7 +33,6 @@ from .schemas import (
     McpNodeDetail,
     McpNodeInfo,
     McpNodePage,
-    McpOpenProjectResult,
     McpPatchOperation,
     McpPreview,
     McpProjectInfo,
@@ -266,8 +265,8 @@ class ArxmlMcpService:
         filepaths: Annotated[
             list[str], Field(min_length=1, max_length=1000, description='需要一起查询及同步引用的文件路径数组，例如 ["SWC.arxml"]；相对路径以 workspace 为基准。')
         ],
-    ) -> McpOpenProjectResult:
-        """加载明确指定的 ARXML 文件集合，不写盘；仅返回问题类型，完整加载问题用 project_info 查看。版本不匹配仅告警。"""
+    ) -> McpProjectInfo:
+        """加载明确指定的 ARXML 文件集合，不写盘；版本不匹配仅告警，继续尝试使用当前绑定解析。"""
         check_recovery(self.workspace)
         paths = {}
         baseline = {}
@@ -311,15 +310,7 @@ class ArxmlMcpService:
         project = McpProjectState(uuid4().hex, io, paths, baseline, rendered_baseline, load_diagnostics=load_diagnostics)
         project.load_diagnostics.extend(item for item in self._diagnostics(self._files(project)) if item.code != 'XSD_ERROR')
         self.projects[project.project_id] = project
-        info = self.project_info(project.project_id)
-        return McpOpenProjectResult(
-            project_id=info.project_id,
-            revision=info.revision,
-            schema_version=info.schema_version,
-            files=info.files,
-            diagnostic_codes=sorted({item.code for item in info.diagnostics}),
-            reference_scope=info.reference_scope,
-        )
+        return self.project_info(project.project_id)
 
     def project_info(self, project_id: str) -> McpProjectInfo:
         """返回工程修订号、文件标识、未保存状态及加载时诊断。"""
