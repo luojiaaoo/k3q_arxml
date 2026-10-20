@@ -7,6 +7,7 @@ from typing import Any
 
 from .arxml_file import ArxmlFile, ref2str
 from .schemas import ArxmlNamedNode, ArxmlRefNode, Filepath, T, TupleRef
+from .validation import validate_paths
 
 
 class IOArxml:
@@ -55,7 +56,7 @@ class IOArxml:
         return [row for file in self.files.values() for row in file.index.references.get(ref, [])]
 
     def append(self, filepath: Filepath) -> ArxmlFile:
-        """加载已有的 ARXML 文件并加入管理，拒绝重复文件及跨文件对象路径；不写回文件。"""
+        """加载 ARXML 并加入管理，拒绝重复文件及重复的 schema 叶子路径；不写回文件。"""
         filepath = filepath.resolve()
         if filepath in self.files:
             raise ValueError(f'{filepath} 已加载，不能重复添加')
@@ -66,15 +67,22 @@ class IOArxml:
         if not filepath.is_file():
             raise ValueError(f'{filepath} 不是普通文件')
         file = ArxmlFile(binding=self.binding).parse_file(filepath)
-        for ref in file.index.objects:
-            for loaded_file in self.files.values():
-                if ref in loaded_file.index.objects:
-                    raise ValueError(f'{ref2str(ref)} 同时存在于 {loaded_file.filepath} 和 {filepath}')
+        return self.add_file(file)
+
+    def add_file(self, file: ArxmlFile) -> ArxmlFile:
+        """加入已解析文件，复用与 append 相同的工程路径校验；失败时不修改工程。"""
+        filepath = file.filepath
+        if filepath is None or file.binding is not self.binding:
+            raise ValueError('文件必须已解析且使用当前工程的 schema 绑定')
+        if filepath in self.files:
+            raise ValueError(f'{filepath} 已加载，不能重复添加')
+        validate_paths((str(item.filepath), item.root) for item in [*self.files.values(), file])
         self.files[filepath] = file
         return file
 
     def flush_to_file(self) -> None:
         """仅保存已标记修改且尚未回写的文件。"""
+        validate_paths((str(file.filepath), file.root) for file in self.files.values())
         for file in self.files.values():
             if file._dirty:
                 file.save()

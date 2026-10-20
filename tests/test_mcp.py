@@ -32,6 +32,11 @@ def datatype(name, *, namespace=False):
     return f'<APPLICATION-PRIMITIVE-DATA-TYPE{declaration}><SHORT-NAME>{name}</SHORT-NAME><CATEGORY>VALUE</CATEGORY></APPLICATION-PRIMITIVE-DATA-TYPE>'
 
 
+def datatype_with_leaves(name, *leaves):
+    targets = ''.join(f'<XREF-TARGET><SHORT-NAME>{leaf}</SHORT-NAME></XREF-TARGET>' for leaf in leaves)
+    return datatype(name).replace('<CATEGORY>', f'<DESC><L-2 L="EN">{targets}</L-2></DESC><CATEGORY>')
+
+
 def test_startup_defers_xsd_compilation_and_reuses_it_for_validation(tmp_path, monkeypatch):
     if autosar.SCHEMA_VERSION != '4.2.2':
         pytest.skip('MCP ARXML 回归需要 4.2.2 绑定')
@@ -90,6 +95,112 @@ def project(tmp_path):
 def patch(service, info, ref, operations, **kwargs):
     revision = service.project_info(info.project_id).revision
     return service.patch_xml(info.project_id, ref, [McpPatchOperation(**operation) for operation in operations], revision, **kwargs)
+
+
+@pytest.fixture
+def shared_project(project):
+    service, _, paths = project
+    paths[0].write_text(document('Types', datatype('Speed')), encoding='utf-8')
+    other = service.workspace / 'other-types.arxml'
+    other.write_text(document('Types', datatype('Other')), encoding='utf-8')
+    content = paths[1].read_text(encoding='utf-8')
+    before, after = content.rsplit('/Types/Speed', 1)
+    paths[1].write_text(before + '/Types/Other' + after, encoding='utf-8')
+    info = service.open_project([str(paths[0]), str(other), str(paths[1])])
+    return service, info, [paths[0], other, paths[1]]
+
+
+def test_shared_packages_support_queries_edits_validation_and_reload(shared_project):
+    service, info, paths = shared_project
+    assert not info.diagnostics
+    packages = service.find_nodes(info.project_id, xml_tag='AR-PACKAGE', ref_prefix='/Types')
+    assert [(node.file_id, node.ref) for node in packages.items] == [('f1', '/Types'), ('f2', '/Types')]
+    assert service.get_node(info.project_id, '/Types/Other').node.file_id == 'f2'
+    with pytest.raises(McpServiceError) as error:
+        service.get_node(info.project_id, '/Types')
+    assert error.value.error.code == 'AMBIGUOUS_NODE'
+    assert service.get_node(info.project_id, '/Types', file_id='f2').node.file_id == 'f2'
+    patch(service, info, '/Types', [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': datatype('Added', namespace=True)}], file_id='f2')
+    assert service.get_node(info.project_id, '/Types/Added').node.file_id == 'f2'
+    assert service.validate_project(info.project_id).valid
+    service.save_changes(info.project_id, service.preview_changes(info.project_id).preview_token)
+    reloaded = service.open_project([str(path) for path in paths])
+    assert not reloaded.diagnostics
+    assert service.validate_project(reloaded.project_id).valid
+
+
+def test_duplicate_leaves_are_rejected_on_load_and_edit(shared_project):
+    service, info, paths = shared_project
+    paths[0].write_text(document('Types', datatype_with_leaves('Speed', 'Leaf')), encoding='utf-8')
+    paths[1].write_text(document('Types', datatype_with_leaves('Speed', 'Other')), encoding='utf-8')
+    info = service.open_project([str(path) for path in paths])
+    leaf = f'<XREF-TARGET xmlns="{NAMESPACE}"><SHORT-NAME>Leaf</SHORT-NAME></XREF-TARGET>'
+    with pytest.raises(McpServiceError) as error:
+        patch(service, info, '/Types/Speed', [{'op': 'append', 'xpath': './ar:DESC/ar:L-2', 'xml': leaf}], file_id='f2')
+    assert error.value.error.code == 'VALIDATION_FAILED'
+    assert 'DUPLICATE_PATH' in error.value.error.message and '/Types/Speed/Leaf' in error.value.error.message
+    with pytest.raises(McpServiceError) as error:
+        service.rename_node(info.project_id, '/Types/Speed/Other', 'Leaf', 0, file_id='f2')
+    assert error.value.error.code == 'VALIDATION_FAILED'
+    assert 'DUPLICATE_PATH' in error.value.error.message
+    assert service.project_info(info.project_id).revision == 0
+    assert service.validate_project(info.project_id).valid
+    assert not service.find_nodes(info.project_id, name='Leaf', file_id='f2').items
+    paths[1].write_text(document('Types', datatype_with_leaves('Speed', 'Leaf')), encoding='utf-8')
+    for filenames in ([str(path) for path in paths], [str(paths[1]), str(paths[0])]):
+        with pytest.raises(McpServiceError) as error:
+            service.open_project(filenames)
+        assert error.value.error.code == 'DUPLICATE_PATH'
+        assert '/Types/Speed/Leaf' in error.value.error.message
+    paths[1].write_text(document('Types', datatype_with_leaves('Speed', 'Leaf', 'Leaf')), encoding='utf-8')
+    with pytest.raises(McpServiceError) as error:
+        service.open_project([str(paths[1])])
+    assert error.value.error.code == 'DUPLICATE_PATH'
+
+
+def test_rename_shared_package_only_updates_references_to_selected_branch(shared_project):
+    service, info, _ = shared_project
+    result = service.rename_node(info.project_id, '/Types', 'Renamed', 0, file_id='f1')
+    assert result.affected_files == ['f1', 'f3'] and result.updated_references == 1
+    assert service.get_node(info.project_id, '/Renamed/Speed').node.file_id == 'f1'
+    assert service.get_node(info.project_id, '/Types/Other').node.file_id == 'f2'
+    assert service.find_references(info.project_id, '/Renamed/Speed').total == 1
+    assert service.find_references(info.project_id, '/Types/Other').total == 1
+    assert service.validate_project(info.project_id).valid
+    result = service.rename_node(info.project_id, '/Renamed', 'Types', result.revision)
+    assert result.updated_references == 1
+    assert service.validate_project(info.project_id).valid
+
+
+def test_shared_non_package_intermediate_nodes_are_allowed(project):
+    service, _, paths = project
+    root = read_xml(paths[1].read_bytes())
+    variables = root.findall('.//ar:VARIABLE-DATA-PROTOTYPE', {'ar': NAMESPACE})
+    variables[0].getparent().remove(variables[0])
+    other = service.workspace / 'split-interface.arxml'
+    other.write_bytes(etree.tostring(root))
+    root = read_xml(paths[1].read_bytes())
+    variables = root.findall('.//ar:VARIABLE-DATA-PROTOTYPE', {'ar': NAMESPACE})
+    variables[1].getparent().remove(variables[1])
+    paths[1].write_bytes(etree.tostring(root))
+    info = service.open_project([str(path) for path in paths] + [str(other)])
+    assert not info.diagnostics
+    assert service.find_nodes(info.project_id, xml_tag='SENDER-RECEIVER-INTERFACE').total == 2
+    assert service.find_nodes(info.project_id, xml_tag='VARIABLE-DATA-PROTOTYPE').total == 2
+    assert service.validate_project(info.project_id).valid
+
+
+def test_empty_schema_containers_and_nonleaf_types_can_repeat(project):
+    service, _, paths = project
+    paths[0].write_text(document('Types', datatype('Speed')), encoding='utf-8')
+    other = service.workspace / 'empty.arxml'
+    other.write_text(document('Types', ''), encoding='utf-8')
+    info = service.open_project([str(paths[0]), str(other)])
+    assert service.validate_project(info.project_id).valid
+    other.write_bytes(paths[0].read_bytes())
+    info = service.open_project([str(paths[0]), str(other)])
+    assert not info.diagnostics
+    assert service.find_nodes(info.project_id, name='Speed').total == 2
 
 
 def test_queries_pagination_xml_references_and_types(project):
@@ -206,10 +317,12 @@ def test_rename_updates_cross_file_references_and_saves_with_backup(project, ref
 
 def test_failed_rename_does_not_publish_objects_or_indexes(project):
     service, info, paths = project
+    paths[0].write_text(document('Types', datatype_with_leaves('Speed', 'Leaf', 'Other')), encoding='utf-8')
+    info = service.open_project([str(path) for path in paths])
     state = service.projects[info.project_id]
     original = state.io.files[paths[0]]
     with pytest.raises(McpServiceError):
-        service.rename_node(info.project_id, '/Types/Speed', 'Other', 0)
+        service.rename_node(info.project_id, '/Types/Speed/Leaf', 'Other', 0)
     assert state.io.files[paths[0]] is original
     assert original.ref(('Types', 'Speed')).short_name == 'Speed'
     assert service.find_references(info.project_id, '/Types/Speed').total == 2
@@ -278,7 +391,6 @@ def test_document_root_supports_top_level_package_changes(project):
         [{'op': 'set_attribute', 'xpath': './/ar:SHORT-NAME', 'attribute': 'S', 'value': 'ambiguous'}],
         [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': '<INVALID/>'}],
         [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': '<broken>'}],
-        [{'op': 'append', 'xpath': './ar:ELEMENTS', 'xml': datatype('Speed', namespace=True)}],
         [{'op': 'delete', 'xpath': './ar:ELEMENTS/ar:APPLICATION-PRIMITIVE-DATA-TYPE[1]'}],
         [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UNKNOWN', 'value': 'lost'}],
         [{'op': 'set_attribute', 'xpath': '.', 'attribute': 'UUID', 'value': 'first'}, {'op': 'delete', 'xpath': './ar:MISSING'}],
@@ -632,6 +744,7 @@ def test_loading_rejects_missing_schema_duplicate_paths_and_workspace_escape(pro
     with pytest.raises(McpServiceError):
         service.open_project([str(paths[0]), str(paths[0])])
     duplicate = service.workspace / 'duplicate.arxml'
+    paths[0].write_text(document('Types', datatype_with_leaves('Speed', 'Leaf')), encoding='utf-8')
     copy2(paths[0], duplicate)
     with pytest.raises(McpServiceError) as error:
         service.open_project([str(paths[0]), str(duplicate)])

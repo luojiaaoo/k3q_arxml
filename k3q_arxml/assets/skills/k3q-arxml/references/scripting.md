@@ -31,7 +31,7 @@ from pathlib import Path
 from k3q_arxml import IOArxml
 
 io = IOArxml(filepaths=[Path('SWC.arxml'), Path('Types.arxml')], binding=autosar)
-io.append(Path('More.arxml'))   # 运行中追加；拒绝重复文件与跨文件重复对象路径
+io.append(Path('More.arxml'))   # 运行中追加；拒绝重复文件与重复的 schema 叶子路径
 io.flush_to_file()              # 只回写标记修改的文件
 ```
 
@@ -161,7 +161,7 @@ if __name__ == '__main__':
 ## 注意事项
 
 - **索引时效**：直接改 `xml_obj` 后索引不自动更新，后续查询前要么 `edited()`、要么事务统一刷新、要么 `update_node`。忘记刷新是批量脚本最常见的 bug。
-- **路径唯一**：同一 SHORT-NAME 链不能跨文件重复，`IOArxml` 加载时即检查。
+- **叶子路径唯一**：核心层统一检查 schema 叶子具名类型的完整 SHORT-NAME 链，禁止同文件及跨文件重复。叶子按当前版本绑定的字段类型（含可选字段、无名包装和 choices）判定，与实例是否包含子节点无关。中间类型允许重复；`IOArxml.ref` 遇到多个匹配仍报错，可通过所属文件的 `ArxmlFile.ref` 定位。
 - **跨文件引用**：`ref_to_ref` 汇总所有已加载文件；引用目标可在其他文件甚至未加载文件中。只加载需要同步的那批文件。
 - **回写格式**：保存保留原缩进与根节点前注释，但绑定序列化可能产生数值/空白规范化差异，批量前后建议 `git diff` 抽查。
 - **先试跑**：破坏性批量操作先在副本目录或 `git stash` 可回退的环境跑一遍，确认 `render()` / diff 无误再 `flush_to_file()`。

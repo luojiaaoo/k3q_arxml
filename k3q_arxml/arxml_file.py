@@ -17,6 +17,7 @@ from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .log import logger
 from .schemas import ArxmlFormat, ArxmlHeader, ArxmlIndex, ArxmlNamedNode, ArxmlReference, ArxmlRefNode, Filepath, RefT, T, TupleRef
+from .validation import validate_paths
 
 AutosarT = TypeVar('AutosarT')
 AutosarT_co = TypeVar('AutosarT_co', covariant=True)
@@ -177,11 +178,9 @@ class ArxmlFile(Generic[AutosarT, RefT]):
         # 2. 用旧父路径扫描修改后的整棵子树，新的 SHORT-NAME 由扫描器追加。
         scanned = self.__scan_arobj_ref(node.xml_obj, parent_ref=old_ref[:-1], parent_obj=node.xml_obj.arxml_parent)
 
-        # 3. 检查新路径是否占用了其他分支，并在旧位置插入整棵新子树。
+        # 3. 由核心校验器检查整份文档的 schema 叶子路径，再合入新子树。
         # 保留文件内的对象顺序，后面才能按原扫描顺序处理重复 UUID。
-        for ref in scanned.objects:
-            if ref in self.index.objects and not in_old_subtree(ref):
-                raise ValueError(f'{self.filepath}: 路径 {ref2str(ref)} 与其他分支冲突')
+        validate_paths([(str(self.filepath), self.root)])
         merged: ArxmlIndex[RefT] = ArxmlIndex()
         for ref, current in self.index.objects.items():
             if ref == old_ref:
@@ -400,4 +399,5 @@ class ArxmlFile(Generic[AutosarT, RefT]):
                     _scan(value, ref, node)
 
         _scan(obj, parent_ref, parent_obj)
+        validate_paths([(str(self.filepath), obj)], parent_ref)
         return index

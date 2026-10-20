@@ -49,14 +49,14 @@ open_project → 查询定位 → 编辑（带 revision）→ validate_project
             → preview_changes → save_changes → close_project
 ```
 
-1. **open_project**：传需要一起查询及同步引用的文件路径数组（相对路径以工作目录为基准）。返回 `project_id`、`revision`、各文件 `file_id`、加载诊断。版本不匹配仅告警。跨文件对象路径重复直接拒绝。
+1. **open_project**：传需要一起查询及同步引用的文件路径数组（相对路径以工作目录为基准）。返回 `project_id`、`revision`、各文件 `file_id`、加载诊断。版本不匹配仅告警。路径校验复用核心层规则：只有 schema 定义的叶子具名类型，其完整 SHORT-NAME 路径不允许重复，同文件和跨文件均检查。叶子根据当前版本绑定的字段类型（含可选字段、无名包装和 choices）判定，与实例是否包含子节点无关；包等可以包含具名后代的中间类型允许重复，包括空实例。
 2. **查询定位**：
    - `find_nodes(xml_tag, name, ref_prefix)`——`xml_tag` 必须使用精确的全大写 XML 标签（如 `CAN-FRAME`，不能写成 `CAN-Frame` 或 `can-frame`；不是 Python 类名，不能用片段匹配）。含任何小写字母直接报 `XML_TAG_CASE_MISMATCH`，不自动转换大小写，也不依赖查询范围内是否存在该类型。`describe_type` 的 `xml_tag` 遵循同一规则；不确定标签时省略 `find_nodes` 的 `xml_tag` 先按 `name` 子串查。
      `ref_prefix` 是由各级 `SHORT-NAME` 组成的路径前缀，匹配自身及所有后代，允许末尾 `/`。例如 `find_nodes(project_id, xml_tag="CAN-FRAME", ref_prefix="/SystemWeaver/Frames")` 可直接找到包内的帧。默认 `/` 表示不限制路径；省略 `file_id` 查询工程中全部已加载文件。
-   - `get_node(ref, include_xml=true, xpath=...)`——读节点 XML；`xpath` 相对节点，`ar:` 前缀表示 AUTOSAR 命名空间。
+   - `get_node(ref, include_xml=true, xpath=...)`——读节点 XML；`xpath` 相对节点，`ar:` 前缀表示 AUTOSAR 命名空间。同路径节点存在于多个文件时，读取和编辑必须传 `file_id`，否则报 `AMBIGUOUS_NODE`；先用 `find_nodes` 获取各文件标识。
    - `find_references(ref)`——入向引用，每项带 `xpath`（相对 owner），可直接用于局部编辑。
 3. **编辑**——两类工具，都必须带**最新 revision**（查询结果里返回；每次编辑成功后 revision 递增）：
-   - `rename_node(ref, new_name, revision)`：`ref` 传旧路径，`new_name` 只传新 SHORT-NAME（字母开头，仅字母数字下划线）。自动同步已加载文件中指向它及后代的引用；包重命名会同时更新后代对象路径及其引用。**不**改 LONG-NAME、符号字符串或未加载文件中的文本。**现有 SHORT-NAME 修改用它，不要用 patch_xml**。成功后用返回的 `new_ref` 回读节点并检查 `updated_references`：
+   - `rename_node(ref, new_name, revision)`：`ref` 传旧路径，`new_name` 只传新 SHORT-NAME（字母开头，仅字母数字下划线）。自动同步已加载文件中指向它及后代的引用；共享中间节点通过 `file_id` 选择分支，仅迁移该分支，其他文件仍提供的路径及其引用保持原值。重命名后的中间节点允许与其他文件共享路径，但叶子路径仍须唯一。**不**改 LONG-NAME、符号字符串或未加载文件中的文本。**现有 SHORT-NAME 修改用它，不要用 patch_xml**。成功后用返回的 `new_ref` 回读节点并检查 `updated_references`：
 
      ```json
      {
@@ -131,7 +131,8 @@ open_project → 查询定位 → 编辑（带 revision）→ validate_project
 | `INVALID_REF` | 路径格式错误或混入 XML 标签、换行、控制字符 | 只传由各级 SHORT-NAME 组成的路径，如 `/SystemWeaver/Frames`；不要附加 `</ref_prefix>` 等标记 |
 | `XML_TAG_CASE_MISMATCH` | `xml_tag` 含小写字母，查询前直接拒绝 | 按原始 XML 的精确拼写传全大写标签，如 `CAN-FRAME`；工具不自动转换大小写 |
 | `STALE_REVISION` / `STALE_PREVIEW` | revision / preview_token 过期 | 重新查询 / 重新预览 |
-| `DUPLICATE_PATH` | 对象路径冲突或重命名后被占用 | 换名，或拆分文件集合 |
+| `DUPLICATE_PATH` | 叶子具名节点路径冲突或重命名后被占用 | 换名，或拆分文件集合 |
+| `AMBIGUOUS_NODE` | 中间节点路径存在于多个文件 | 用 `find_nodes` 获取并传入 `file_id` |
 | `INVALID_NAME` | SHORT-NAME 不符合 `^[A-Za-z][A-Za-z0-9_]*$` | 改名 |
 | `XPATH_MATCH_COUNT` / `INVALID_XPATH` | 选择器非法或匹配数不为 1 | 读 XML 收窄选择器，不盲调位置数字 |
 | `INVALID_OPERATION` | 操作参数不合法（如 `set_text` 作用于含子元素的节点、删/替编辑根本身） | 按 op 约束调整目标节点或改用其他操作 |

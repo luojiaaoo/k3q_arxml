@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from dataclasses import fields, is_dataclass
 from enum import Enum
-from functools import cached_property
+from functools import cached_property, wraps
 from pathlib import Path
 from threading import RLock
 from types import ModuleType
@@ -22,6 +22,7 @@ from ..arxml_file import ArxmlFile, ref2str, str2ref
 from ..k3q_arxml import IOArxml
 from ..cli import PACKAGE_ROOT, SCHEMAS
 from ..schemas import ArxmlHeader, ArxmlNamedNode
+from ..validation import DuplicatePathError, duplicate_paths
 from .persistence import check_recovery, checked_path, digest, save_files
 from .schemas import (
     McpCloseResult,
@@ -52,6 +53,19 @@ Offset = Annotated[int, Field(ge=0, description='分页起点，从 0 开始。'
 Limit = Annotated[int, Field(ge=1, le=200, description='每页数量，最多 200。')]
 SourceLimit = Annotated[int, Field(ge=1, le=32_000, description='源码片段字符数，默认 16,000，最多 32,000。')]
 Revision = Annotated[int, Field(ge=0, description='最近查询得到的工程 revision；修改后需使用新值。')]
+
+
+def _path_errors(method):
+    """仅将核心层的路径错误转换为 MCP 业务错误。"""
+
+    @wraps(method)
+    def execute(*args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except DuplicatePathError as exc:
+            fail('DUPLICATE_PATH', str(exc), '修正重复的 schema 叶子节点路径，或拆分文件集合。')
+
+    return execute
 
 
 def _path(ref: str, *, root: bool = False) -> tuple[str, ...]:
@@ -147,12 +161,17 @@ class ArxmlMcpService:
             fail('FILE_ID_REQUIRED', '访问文件根 / 必须提供 file_id。', '从 project_info 获取文件标识。')
         if file_id and file_id not in project.paths:
             fail('FILE_NOT_FOUND', f'未知 file_id：{file_id}', '从 project_info 获取已加载的文件标识。')
+        matches = []
         for current_id, file in self._files(project).items():
             if file_id and current_id != file_id:
                 continue
             node = file.ref(path) if path else None
             if not path or node is not None:
-                return current_id, file, node
+                matches.append((current_id, file, node))
+        if len(matches) > 1:
+            fail('AMBIGUOUS_NODE', f'节点 {ref} 存在于多个文件。', '通过 find_nodes 获取 file_id，并指定需要访问的文件。')
+        if matches:
+            return matches[0]
         fail('NODE_NOT_FOUND', f'节点不存在：{ref}', '调用 find_nodes 查找当前节点路径。')
 
     def _summary(self, project: McpProjectState, file_id: str, node: ArxmlNamedNode | None) -> McpNodeInfo:
@@ -188,11 +207,11 @@ class ArxmlMcpService:
             if not self.schema.validate(root):
                 diagnostics.extend(McpDiagnostic(code='XSD_ERROR', severity='error', message=error.message, file_id=file_id, line=error.line) for error in self.schema.error_log)
             for ref, element in walk_named(root):
-                if ref in objects:
-                    diagnostics.append(
-                        McpDiagnostic(code='DUPLICATE_PATH', severity='error', message=f'{ref2str(ref)} 与 {objects[ref][0]} 的节点重复。', file_id=file_id, ref=ref2str(ref))
-                    )
                 objects[ref] = file_id, etree.QName(element).localname
+        diagnostics.extend(
+            McpDiagnostic(code='DUPLICATE_PATH', severity='error', message=str(error), file_id=error.second, ref=ref2str(error.ref))
+            for error in duplicate_paths((file_id, file.root) for file_id, file in files.items())
+        )
 
         # 既有未解析引用及类型问题保留警告；新增加的相同问题按数量检测。
         allowances: Counter = Counter()
@@ -240,6 +259,7 @@ class ArxmlMcpService:
             project.preview_token = None
         return changed
 
+    @_path_errors
     def open_project(
         self,
         filepaths: Annotated[
@@ -252,7 +272,6 @@ class ArxmlMcpService:
         baseline = {}
         rendered_baseline = {}
         io = IOArxml([], binding=self.binding)
-        seen_refs = set()
         load_diagnostics = []
         for index, value in enumerate(filepaths):
             supplied = Path(value)
@@ -266,10 +285,6 @@ class ArxmlMcpService:
             if root.tag != f'{{{NAMESPACE}}}AUTOSAR' or not schema_location:
                 fail('SCHEMA_MISMATCH', '缺少 AUTOSAR 根节点、命名空间或 schemaLocation。', '检查文件头部的 AUTOSAR schema 声明。')
             header = ArxmlHeader(xml_namespace=namespace, xml_schema_location=schema_location)
-            for ref, _ in walk_named(root):
-                if ref in seen_refs:
-                    fail('DUPLICATE_PATH', f'对象路径重复：{ref2str(ref)}', '拆分文件集合或修正重复的节点路径。')
-                seen_refs.add(ref)
             file_id = f'f{index + 1}'
             if not self.schema.validate(root):
                 load_diagnostics.extend(
@@ -286,7 +301,7 @@ class ArxmlMcpService:
             file = ArxmlFile(binding=self.binding).parse_autosar(
                 path, obj, header.xml_namespace, header.xml_schema_location, indent.group(1).decode() if indent else '    ', '\n'.join(reversed(comments))
             )
-            io.files[path] = file
+            io.add_file(file)
             paths[file_id] = path
             baseline[file_id] = content
             rendered_baseline[file_id] = file.render()
@@ -497,6 +512,7 @@ class ArxmlMcpService:
             binding_dependencies(index, matches[0])
         return index.page(name, matches, schema_version=self.binding.SCHEMA_VERSION, source=source, offset=offset, limit=limit, candidate_offset=candidate_offset)
 
+    @_path_errors
     def rename_node(self, project_id: str, ref: str, new_name: str, revision: Revision, file_id: str | None = None) -> McpEditResult:
         """ref 必须为当前已存在的旧路径，new_name 仅传新 SHORT-NAME；同步已加载文件中指向它及后代的引用，成功后使用新 revision 和路径查询。"""
         project = self._project(project_id)
@@ -506,17 +522,17 @@ class ArxmlMcpService:
         old_ref = _path(ref)
         key, _, _ = self._node(project, ref, file_id)
         new_ref = (*old_ref[:-1], new_name)
-        all_refs = {path for file in project.io.files.values() for path in file.index.objects}
-        old_subtree = {path for path in all_refs if path[: len(old_ref)] == old_ref}
-        for path in old_subtree:
-            destination = (*new_ref, *path[len(old_ref) :])
-            if destination in all_refs and destination not in old_subtree:
-                fail('DUPLICATE_PATH', f'重命名后的路径已存在：{ref2str(destination)}', '选择未占用的名称；当前会话尚未修改。')
-        affected = {key}
-        for current_id, file in self._files(project).items():
-            if any(target[: len(old_ref)] == old_ref for target in file.index.references):
-                affected.add(current_id)
         files = self._files(project)
+        # 只迁移选中文件的分支；其他文件仍提供的共享路径及其引用保持有效。
+        retained_refs = {path for current_id, file in files.items() if current_id != key for path in file.index.objects}
+
+        def moves(target_ref: tuple[str, ...]) -> bool:
+            return target_ref[: len(old_ref)] == old_ref and target_ref not in retained_refs
+
+        affected = {key}
+        for current_id, file in files.items():
+            if any(moves(target) for target in file.index.references):
+                affected.add(current_id)
         candidates = {current_id: clone_file(files[current_id]) for current_id in project.paths if current_id in affected}
         target = candidates[key].ref(old_ref)
         target.xml_obj.short_name.value = new_name
@@ -526,7 +542,7 @@ class ArxmlMcpService:
         for current_id, file in candidates.items():
             # 在旧索引上一次性收集引用，修改期间不重建活动索引。
             for target_ref, rows in file.index.references.items():
-                if target_ref[: len(old_ref)] == old_ref:
+                if moves(target_ref):
                     destination = (*new_ref, *target_ref[len(old_ref) :])
                     for row in rows:
                         row.set_dest(destination)
@@ -546,6 +562,7 @@ class ArxmlMcpService:
         changed = self._publish(project, candidates)
         return McpEditResult(project_id=project_id, revision=project.revision, affected_files=changed, new_ref=ref2str(new_ref), updated_references=count)
 
+    @_path_errors
     def patch_xml(
         self, project_id: str, ref: str, operations: Annotated[list[McpPatchOperation], Field(min_length=1, max_length=100)], revision: Revision, file_id: str | None = None
     ) -> McpEditResult:

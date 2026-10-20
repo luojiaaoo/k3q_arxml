@@ -85,11 +85,11 @@ from k3q_arxml import IOArxml
 
 io = IOArxml(filepaths=[Path('SWC.arxml'), Path('Types.arxml')], binding=autosar)
 
-# 运行中追加文件（拒绝重复文件及跨文件重复对象路径）
+# 运行中追加文件（拒绝重复文件及重复的 schema 叶子路径）
 io.append(Path('More.arxml'))
 ```
 
-约束：同一路径元组（SHORT-NAME 链）不能在多个文件中重复出现；引用必须是绝对路径（`/Package/Type`），不支持相对引用。
+约束：只有 schema 定义的叶子具名类型，其完整路径元组（SHORT-NAME 链）不允许重复；中间类型允许同路径出现于多个文件或分支。叶子根据当前版本绑定的字段类型、可选字段及 choices 判定，不根据实例是否为空；能够包含具名后代的类型始终属于中间类型。校验由核心层统一执行，MCP 复用相同规则。引用必须是绝对路径（`/Package/Type`），不支持相对引用。共享路径查询可使用各文件的 `ArxmlFile.ref`；`IOArxml.ref` 仍要求唯一匹配。
 
 ### 3. 查询
 

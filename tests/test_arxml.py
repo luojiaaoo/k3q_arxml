@@ -307,6 +307,10 @@ class TestArxml:
         assert len(reloaded.index.references[('Network', 'Trigger')]) == 1
 
     def test_shared_paths_reject_second_file_without_changing_loaded_files(self):
+        tree = etree.parse(self.path)
+        name = tree.find('.//{http://autosar.org/schema/r4.0}AR-PACKAGE/{http://autosar.org/schema/r4.0}SHORT-NAME')
+        name.addnext(etree.fromstring(b'<DESC xmlns="http://autosar.org/schema/r4.0"><L-2 L="EN"><XREF-TARGET><SHORT-NAME>Leaf</SHORT-NAME></XREF-TARGET></L-2></DESC>'))
+        tree.write(self.path, encoding='utf-8', xml_declaration=True)
         other_path = self.path.with_name('other.arxml')
         copy2(self.path, other_path)
         document = IOArxml([self.path], binding=self.autosar)

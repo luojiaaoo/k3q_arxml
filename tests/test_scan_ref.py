@@ -458,19 +458,23 @@ class TestScanRef:
         last.edited()
         assert file.index.uuids['duplicate'] == ('A',)
 
-    def test_edit_path_conflict_and_wrapper_failure_preserve_previous_indexes(self):
+    def test_leaf_path_conflict_preserves_previous_indexes(self):
+        file = self.scan(Container(content=[NamedBase(Text('A')), NamedBase(Text('B'))]))
+        previous = file.index.objects, file.index.references, file.index.uuids
+        node = file.ref(('A',))
+        node.xml_obj.short_name.value = 'B'
+        with pytest.raises(ValueError, match='/B.*schema 叶子'):
+            node.xml_obj.edited()
+        for current, old in zip((file.index.objects, file.index.references, file.index.uuids), previous, strict=True):
+            assert current is old
+        assert node.ref == ('A',)
+
+    def test_wrapper_failure_preserves_previous_indexes(self):
         file = self.scan(Container(content=[NamedNode(Text('A'), child=NamedNode(Text('Child'))), NamedNode(Text('B'))]))
         previous = file.index.objects, file.index.references, file.index.uuids
         node = file.ref(('A',))
         child_node = file.ref(('A', 'Child'))
         obj = node.xml_obj
-        obj.short_name.value = 'B'
-        with pytest.raises(ValueError, match='路径.*冲突'):
-            obj.edited()
-        for current, old in zip((file.index.objects, file.index.references, file.index.uuids), previous, strict=True):
-            assert current is old
-        assert node.ref == ('A',)
-        node.xml_obj.short_name.value = 'A'
         obj.short_name.value = 'Renamed'
         obj.child.short_name.value = 'RenamedChild'
         obj.content.append(NamedNode(Text('Added')))
