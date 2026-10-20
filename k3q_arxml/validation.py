@@ -63,7 +63,9 @@ def iter_named_nodes(root: Any, parent_ref: TupleRef = ()) -> Iterator[tuple[Tup
             parent_ref = (*parent_ref, root.short_name.value)
             yield parent_ref, root
         for item in fields(root):
-            yield from iter_named_nodes(getattr(root, item.name), parent_ref)
+            value = getattr(root, item.name)
+            if value is not None:
+                yield from iter_named_nodes(value, parent_ref)
 
 
 class DuplicatePathError(ValueError):

@@ -17,7 +17,7 @@ from xsdata.formats.dataclass.serializers.writers import LxmlEventWriter
 
 from .log import logger
 from .schemas import ArxmlFormat, ArxmlHeader, ArxmlIndex, ArxmlNamedNode, ArxmlReference, ArxmlRefNode, Filepath, RefT, T, TupleRef
-from .validation import validate_paths
+from .validation import DuplicatePathError, is_schema_leaf, validate_paths
 
 AutosarT = TypeVar('AutosarT')
 AutosarT_co = TypeVar('AutosarT_co', covariant=True)
@@ -308,6 +308,7 @@ class ArxmlFile(Generic[AutosarT, RefT]):
         assert self.filepath is not None
 
         index: ArxmlIndex[RefT] = ArxmlIndex()
+        leaf_refs: set[TupleRef] = set()
 
         def _edited_xml_obj(xml_obj: T, refresh_index: bool = True) -> T:
             """标记文件已修改并返回原对象；默认刷新最近具名节点的索引。
@@ -334,6 +335,11 @@ class ArxmlFile(Generic[AutosarT, RefT]):
                 raise ValueError(f'{self.filepath}: {ref2str(ref)} ({type(node).__qualname__}.short_name): SHORT-NAME 必须是非空且不含 / 的字符串')
             # 新建路径元组，不改变父节点路径或兄弟节点正在使用的路径。
             named_ref = (*ref, name)
+            # 在索引覆盖同路径对象前校验；集合仅用于本次扫描，不维护额外持久索引。
+            if is_schema_leaf(type(node)):
+                if named_ref in leaf_refs:
+                    raise DuplicatePathError(named_ref, str(self.filepath), str(self.filepath))
+                leaf_refs.add(named_ref)
             # 在登记对象时直接完成包装，调用方无需再次转换 objects。
             index.objects[named_ref] = ArxmlNamedNode(xml_obj=node, ref=named_ref)
             uuid = getattr(node, 'uuid', None)
@@ -399,5 +405,4 @@ class ArxmlFile(Generic[AutosarT, RefT]):
                     _scan(value, ref, node)
 
         _scan(obj, parent_ref, parent_obj)
-        validate_paths([(str(self.filepath), obj)], parent_ref)
         return index
