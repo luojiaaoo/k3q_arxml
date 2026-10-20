@@ -97,6 +97,23 @@ def patch(service, info, ref, operations, **kwargs):
     return service.patch_xml(info.project_id, ref, [McpPatchOperation(**operation) for operation in operations], revision, **kwargs)
 
 
+def test_open_project_adds_all_files_with_one_core_global_validation(project, monkeypatch):
+    from k3q_arxml.validation import validate_paths
+
+    service, _, paths = project
+    calls = []
+
+    def validate(roots):
+        roots = list(roots)
+        calls.append([source for source, _ in roots])
+        validate_paths(roots)
+
+    monkeypatch.setattr('k3q_arxml.k3q_arxml.validate_paths', validate)
+    info = service.open_project([str(path) for path in paths])
+    assert len(info.files) == 2
+    assert calls == [[str(path) for path in paths]]
+
+
 @pytest.fixture
 def shared_project(project):
     service, _, paths = project

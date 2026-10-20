@@ -16,10 +16,7 @@ class IOArxml:
     def __init__(self, filepaths: Iterable[Filepath], *, binding: ModuleType):
         self.binding = binding
         self.files: dict[Filepath, ArxmlFile] = {}
-        for filepath in filepaths:
-            filepath = filepath.resolve()
-            if filepath not in self.files:
-                self.append(filepath)
+        self.append(filepaths)
 
     def ref(self, ref: TupleRef) -> ArxmlNamedNode[Any] | None:
         """查找唯一对象；同路径有多个对象时抛出异常。"""
@@ -55,30 +52,47 @@ class IOArxml:
         """
         return [row for file in self.files.values() for row in file.index.references.get(ref, [])]
 
-    def append(self, filepath: Filepath) -> ArxmlFile:
-        """加载 ARXML 并加入管理，拒绝重复文件及重复的 schema 叶子路径；不写回文件。"""
-        filepath = filepath.resolve()
-        if filepath in self.files:
-            raise ValueError(f'{filepath} 已加载，不能重复添加')
-        if not filepath.exists():
-            raise FileNotFoundError(f'{filepath} 不存在')
-        if filepath.is_dir():
-            raise IsADirectoryError(f'{filepath} 是目录，不能作为 ARXML 文件加载')
-        if not filepath.is_file():
-            raise ValueError(f'{filepath} 不是普通文件')
-        file = ArxmlFile(binding=self.binding).parse_file(filepath)
-        return self.add_file(file)
+    def append(self, filepaths: Iterable[Filepath]) -> list[ArxmlFile]:
+        """加载一批文件，整批全局校验一次后加入工程，返回文件列表；失败时不修改工程。
+
+        接收路径的可迭代对象；批次内等价路径仅加载一次。
+        已加载文件仍拒绝重复添加；本方法不写回文件。
+        """
+        candidates = {}
+        for filepath in filepaths:
+            filepath = filepath.resolve()
+            if filepath in self.files:
+                raise ValueError(f'{filepath} 已加载，不能重复添加')
+            if filepath in candidates:
+                continue
+            if not filepath.exists():
+                raise FileNotFoundError(f'{filepath} 不存在')
+            if filepath.is_dir():
+                raise IsADirectoryError(f'{filepath} 是目录，不能作为 ARXML 文件加载')
+            if not filepath.is_file():
+                raise ValueError(f'{filepath} 不是普通文件')
+            candidates[filepath] = ArxmlFile(binding=self.binding).parse_file(filepath)
+        return self.add_files(candidates.values())
 
     def add_file(self, file: ArxmlFile) -> ArxmlFile:
-        """加入已解析文件，复用与 append 相同的工程路径校验；失败时不修改工程。"""
-        filepath = file.filepath
-        if filepath is None or file.binding is not self.binding:
-            raise ValueError('文件必须已解析且使用当前工程的 schema 绑定')
-        if filepath in self.files:
-            raise ValueError(f'{filepath} 已加载，不能重复添加')
-        validate_paths((str(item.filepath), item.root) for item in [*self.files.values(), file])
-        self.files[filepath] = file
-        return file
+        """加入一个已解析文件，复用批量入口。"""
+        return self.add_files([file])[0]
+
+    def add_files(self, files: Iterable[ArxmlFile]) -> list[ArxmlFile]:
+        """加入一批已解析文件；与已有文件一起校验一次，通过后整批发布。"""
+        candidates = {}
+        for file in files:
+            filepath = file.filepath
+            if filepath is None or file.binding is not self.binding:
+                raise ValueError('文件必须已解析且使用当前工程的 schema 绑定')
+            if filepath in self.files or filepath in candidates:
+                raise ValueError(f'{filepath} 已加载，不能重复添加')
+            candidates[filepath] = file
+        if not candidates:
+            return []
+        validate_paths((str(item.filepath), item.root) for item in [*self.files.values(), *candidates.values()])
+        self.files.update(candidates)
+        return list(candidates.values())
 
     def flush_to_file(self) -> None:
         """仅保存已标记修改且尚未回写的文件。"""

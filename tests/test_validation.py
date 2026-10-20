@@ -73,7 +73,7 @@ def test_empty_container_paths_may_repeat_in_core_engineering_api(tmp_path):
             encoding='utf-8',
         )
     io = IOArxml([paths[0]], binding=autosar)
-    io.append(paths[1])
+    io.append([paths[1]])
     assert len(io.files) == 2
     assert len(io.ar(autosar.ArPackage)) == 2
     with pytest.raises(ValueError, match='存在于多个文件'):
@@ -91,6 +91,39 @@ def test_core_add_file_checks_leaf_paths_and_keeps_project_atomic(tmp_path, bind
         io.add_file(duplicate)
     assert caught.value.ref == ('Shared', 'Unique')
     assert set(io.files) == {first.filepath, second.filepath}
+
+
+@pytest.mark.parametrize('conflict_with', ['existing', 'batch'])
+def test_batch_append_rejects_global_leaf_conflicts_atomically(tmp_path, conflict_with):
+    def write_file(filename, package, leaf):
+        path = tmp_path / filename
+        path.write_text(
+            '<AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+            'xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_4-2-2.xsd">'
+            f'<AR-PACKAGES><AR-PACKAGE><SHORT-NAME>{package}</SHORT-NAME><DESC><L-2 L="EN">'
+            f'<XREF-TARGET><SHORT-NAME>{leaf}</SHORT-NAME></XREF-TARGET>'
+            '</L-2></DESC></AR-PACKAGE></AR-PACKAGES></AUTOSAR>',
+            encoding='utf-8',
+        )
+        return path
+
+    existing = write_file('existing.arxml', 'Existing', 'Keep')
+    valid = write_file('valid.arxml', 'Shared', 'New')
+    duplicate = write_file('duplicate.arxml', 'Existing' if conflict_with == 'existing' else 'Shared', 'Keep' if conflict_with == 'existing' else 'New')
+    io = IOArxml([existing], binding=autosar)
+    original = io.files.copy()
+    with pytest.raises(DuplicatePathError):
+        io.append([valid, duplicate])
+    assert io.files == original
+
+
+def test_add_files_rejects_conflicts_within_batch_atomically(tmp_path, binding):
+    first = ArxmlFile(binding=binding).parse_autosar(tmp_path / 'first.arxml', Container(Name('Shared'), Wrapper(Leaf(Name('Repeated')))))
+    second = ArxmlFile(binding=binding).parse_autosar(tmp_path / 'second.arxml', Container(Name('Shared'), Wrapper(Leaf(Name('Repeated')))))
+    io = IOArxml([], binding=binding)
+    with pytest.raises(DuplicatePathError):
+        io.add_files(iter([first, second]))
+    assert not io.files
 
 
 def test_core_file_rejects_duplicate_schema_leaves_before_index_overwrite(binding):

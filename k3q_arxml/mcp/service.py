@@ -272,11 +272,12 @@ class ArxmlMcpService:
         baseline = {}
         rendered_baseline = {}
         io = IOArxml([], binding=self.binding)
+        files = {}
         load_diagnostics = []
         for index, value in enumerate(filepaths):
             supplied = Path(value)
             path = checked_path(self.workspace, supplied if supplied.is_absolute() else self.workspace / supplied)
-            if path in io.files:
+            if path in files:
                 fail('DUPLICATE_FILE', f'重复文件：{path}', '每个实际文件只加载一次。')
             content = path.read_bytes()
             root = read_xml(content)
@@ -301,10 +302,11 @@ class ArxmlMcpService:
             file = ArxmlFile(binding=self.binding).parse_autosar(
                 path, obj, header.xml_namespace, header.xml_schema_location, indent.group(1).decode() if indent else '    ', '\n'.join(reversed(comments))
             )
-            io.add_file(file)
+            files[path] = file
             paths[file_id] = path
             baseline[file_id] = content
             rendered_baseline[file_id] = file.render()
+        io.add_files(files.values())
         project = McpProjectState(uuid4().hex, io, paths, baseline, rendered_baseline, load_diagnostics=load_diagnostics)
         project.load_diagnostics.extend(item for item in self._diagnostics(self._files(project)) if item.code != 'XSD_ERROR')
         self.projects[project.project_id] = project

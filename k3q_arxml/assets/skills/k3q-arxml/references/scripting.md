@@ -31,9 +31,12 @@ from pathlib import Path
 from k3q_arxml import IOArxml
 
 io = IOArxml(filepaths=[Path('SWC.arxml'), Path('Types.arxml')], binding=autosar)
-io.append(Path('More.arxml'))   # 运行中追加；拒绝重复文件与重复的 schema 叶子路径
+io.append([Path('More.arxml')])  # 运行中追加；拒绝重复文件与重复的 schema 叶子路径
+files = io.append([Path('A.arxml'), Path('B.arxml')])  # 批量追加，返回文件列表
 io.flush_to_file()              # 只回写标记修改的文件
 ```
+
+初始化复用 `append`，均只接收 `Iterable[Filepath]`；单文件也使用 `[Path(...)]`，`append` 始终返回文件列表。每批文件与已有文件一起做一次全局校验，通过后整批加入；解析或校验失败时，工程保持原状。批次内等价路径仅加载一次，已加载文件仍拒绝重复追加。
 
 - `io.ref(('Types', 'Speed'))` —— 按完整路径查唯一对象；不存在返回 None；同路径出现在多个文件则抛异常。
 - `io.ar(clazz, ref_prefix=())` —— 按 XML 对象类型（含子类）+ 路径前缀查对象列表。`clazz` 是绑定类，如 `autosar.SwBaseType`。

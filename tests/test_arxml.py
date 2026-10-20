@@ -263,8 +263,8 @@ class TestArxml:
         self._copy_with_distinct_paths(other_path)
         with chdir(self.directory):
             with pytest.raises(ValueError, match='已加载'):
-                document.append(Path('sample.arxml'))
-            added = document.append(Path('other.arxml'))
+                document.append([Path('sample.arxml')])
+            added = document.append([Path('other.arxml')])[0]
             assert document.files[Path('other.arxml').resolve()] is added
 
         assert document.files[self.path] is original
@@ -272,6 +272,52 @@ class TestArxml:
         assert added.filepath == other_path
         assert document.files[added.filepath] is added
         assert added.index.objects
+
+    def test_batch_append_and_initialization_validate_once(self):
+        other_path = self.path.with_name('other.arxml')
+        self._copy_with_distinct_paths(other_path)
+        from k3q_arxml.validation import validate_paths
+
+        with patch('k3q_arxml.k3q_arxml.validate_paths', wraps=validate_paths) as validate:
+            document = IOArxml(iter([self.path, other_path]), binding=self.autosar)
+            assert validate.call_count == 1
+        assert list(document.files) == [self.path, other_path]
+
+        document = IOArxml([], binding=self.autosar)
+        with patch('k3q_arxml.k3q_arxml.validate_paths', wraps=validate_paths) as validate:
+            added = document.append(iter([self.path, other_path]))
+            assert validate.call_count == 1
+        assert [file.filepath for file in added] == [self.path, other_path]
+        assert all(document.files[file.filepath] is file for file in added)
+        assert IOArxml([self.path], binding=self.autosar).files[self.path].index.objects
+
+    def test_empty_batch_is_noop(self):
+        with patch('k3q_arxml.k3q_arxml.validate_paths') as validate:
+            document = IOArxml([], binding=self.autosar)
+            assert document.append(iter([])) == []
+            assert document.add_files([]) == []
+            validate.assert_not_called()
+        assert not document.files
+
+    def test_batch_append_failure_does_not_publish_preceding_files(self):
+        document = IOArxml([self.path], binding=self.autosar)
+        original = document.files.copy()
+        other_path = self.path.with_name('other.arxml')
+        self._copy_with_distinct_paths(other_path)
+        invalid = self.path.with_name('invalid.arxml')
+        invalid.write_text('invalid XML', encoding='utf-8')
+        for failing, error in ((self.path.with_name('missing.arxml'), FileNotFoundError), (invalid, etree.XMLSyntaxError), (self.path, ValueError)):
+            with pytest.raises(error):
+                document.append([other_path, failing])
+            assert document.files == original
+
+        def interrupted_paths():
+            yield other_path
+            raise RuntimeError('input failed')
+
+        with pytest.raises(RuntimeError, match='input failed'):
+            document.append(interrupted_paths())
+        assert document.files == original
 
     def test_ref_inner_subclass_is_indexed_and_can_be_edited_and_saved(self):
         autosar = self.autosar
@@ -316,7 +362,7 @@ class TestArxml:
         document = IOArxml([self.path], binding=self.autosar)
         first = document.files[self.path]
         with pytest.raises(ValueError, match='/AUTOSAR_Platform'):
-            document.append(other_path)
+            document.append([other_path])
         assert document.files == {self.path: first}
         with pytest.raises(ValueError, match='/AUTOSAR_Platform'):
             IOArxml([self.path, other_path], binding=self.autosar)
@@ -452,7 +498,7 @@ class TestArxml:
         document = IOArxml([], binding=self.autosar)
         original_content = self.path.read_bytes()
 
-        file = document.append(self.path)
+        file = document.append([self.path])[0]
 
         assert document.files[self.path] is file
         assert file.index.objects
@@ -479,7 +525,7 @@ class TestArxml:
         )
         for path, error in cases:
             with pytest.raises(error):
-                document.append(path)
+                document.append([path])
             assert document.files == {}
         assert self.path.read_bytes() == original_content
         assert not (self.path.parent / 'missing').exists()
