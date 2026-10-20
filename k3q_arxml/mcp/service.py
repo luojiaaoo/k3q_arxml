@@ -266,7 +266,7 @@ class ArxmlMcpService:
             list[str], Field(min_length=1, max_length=1000, description='需要一起查询及同步引用的文件路径数组，例如 ["SWC.arxml"]；相对路径以 workspace 为基准。')
         ],
     ) -> McpProjectInfo:
-        """加载明确指定的 ARXML 文件集合，不写盘；版本不匹配仅告警，继续尝试使用当前绑定解析。"""
+        """加载明确指定的 ARXML 文件集合，不写盘；重复诊断按文件、类型和严重级别汇总，完整明细用 project_info 查看。版本不匹配仅告警。"""
         check_recovery(self.workspace)
         paths = {}
         baseline = {}
@@ -310,7 +310,23 @@ class ArxmlMcpService:
         project = McpProjectState(uuid4().hex, io, paths, baseline, rendered_baseline, load_diagnostics=load_diagnostics)
         project.load_diagnostics.extend(item for item in self._diagnostics(self._files(project)) if item.code != 'XSD_ERROR')
         self.projects[project.project_id] = project
-        return self.project_info(project.project_id)
+        info = self.project_info(project.project_id)
+        counts = Counter((item.file_id, item.code, item.severity) for item in project.load_diagnostics)
+        info.diagnostics = []
+        for item in project.load_diagnostics:
+            key = item.file_id, item.code, item.severity
+            count = counts.pop(key, 0)
+            if not count:
+                continue
+            if count > 1:
+                item = McpDiagnostic(
+                    code=item.code,
+                    severity=item.severity,
+                    message=f'共 {count} 条 {item.code} 诊断；查看完整明细请调用 project_info(project_id)。',
+                    file_id=item.file_id,
+                )
+            info.diagnostics.append(item)
+        return info
 
     def project_info(self, project_id: str) -> McpProjectInfo:
         """返回工程修订号、文件标识、未保存状态及加载时诊断。"""

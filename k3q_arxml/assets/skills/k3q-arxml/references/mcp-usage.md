@@ -9,7 +9,7 @@ k3q-arxml 的 MCP 服务按 AUTOSAR 版本拆分，一个命令绑定一个 sche
 | 工具 | 类型 | 作用 |
 | --- | --- | --- |
 | `get_skill_path` | 只读 | 返回内置手册（assets/skills/k3q-arxml）目录，无需工程会话 |
-| `open_project` | 会话 | 加载明确指定的 ARXML 文件集合，返回 project_id 与 revision |
+| `open_project` | 会话 | 加载明确指定的 ARXML 文件集合，返回 project_id 与 revision；重复诊断汇总数量，完整明细用 project_info 查看 |
 | `project_info` | 只读 | 工程 revision、文件清单、未保存状态、加载诊断 |
 | `find_nodes` | 只读 | 按 XML 标签 / 名称子串 / 路径前缀查找具名节点（分页） |
 | `get_node` | 只读 | 节点摘要；`include_xml=true` 分页返回 XML；`xpath` 限定子元素 |
@@ -49,7 +49,7 @@ open_project → 查询定位 → 编辑（带 revision）→ validate_project
             → preview_changes → save_changes → close_project
 ```
 
-1. **open_project**：传需要一起查询及同步引用的文件路径数组（相对路径以工作目录为基准）。返回 `project_id`、`revision`、各文件 `file_id`、加载诊断。版本不匹配仅告警。路径校验复用核心层规则：只有 schema 定义的叶子具名类型，其完整 SHORT-NAME 路径不允许重复，同文件和跨文件均检查。叶子根据当前版本绑定的字段类型（含可选字段、无名包装和 choices）判定，与实例是否包含子节点无关；包等可以包含具名后代的中间类型允许重复，包括空实例。
+1. **open_project**：传需要一起查询及同步引用的文件路径数组（相对路径以工作目录为基准）。返回 `project_id`、`revision`、各文件 `file_id`、加载诊断；相同文件、类型和严重级别的重复诊断合并为一条，message 显示数量并提示用 `project_info(project_id)` 查看完整加载明细，汇总条目不带单条诊断的位置。局部加载时，未加载文件中的引用目标会产生 `UNRESOLVED_REFERENCE` 警告；这只表示目标不在当前会话中。`validate_project(project_id)` 可校验当前状态并返回完整诊断。版本不匹配仅告警。路径校验复用核心层规则：只有 schema 定义的叶子具名类型，其完整 SHORT-NAME 路径不允许重复，同文件和跨文件均检查。叶子根据当前版本绑定的字段类型（含可选字段、无名包装和 choices）判定，与实例是否包含子节点无关；包等可以包含具名后代的中间类型允许重复，包括空实例。
 2. **查询定位**：
    - `find_nodes(xml_tag, name, ref_prefix)`——`xml_tag` 必须使用精确的全大写 XML 标签（如 `CAN-FRAME`，不能写成 `CAN-Frame` 或 `can-frame`；不是 Python 类名，不能用片段匹配）。含任何小写字母直接报 `XML_TAG_CASE_MISMATCH`，不自动转换大小写，也不依赖查询范围内是否存在该类型。`describe_type` 的 `xml_tag` 遵循同一规则；不确定标签时省略 `find_nodes` 的 `xml_tag` 先按 `name` 子串查。
      `ref_prefix` 是由各级 `SHORT-NAME` 组成的路径前缀，匹配自身及所有后代，允许末尾 `/`。例如 `find_nodes(project_id, xml_tag="CAN-FRAME", ref_prefix="/SystemWeaver/Frames")` 可直接找到包内的帧。默认 `/` 表示不限制路径；省略 `file_id` 查询工程中全部已加载文件。

@@ -445,6 +445,39 @@ def test_existing_unloaded_references_are_warnings(project):
     assert result.revision == 1
 
 
+@pytest.mark.parametrize('reference_count', [2, 100])
+def test_open_project_summarizes_repeated_diagnostics_without_losing_details(project, reference_count):
+    service, _, paths = project
+    paths[0].write_text(document('Types', datatype('Invalid Name') + datatype('Also Invalid')), encoding='utf-8')
+    variables = ''.join(
+        f'<VARIABLE-DATA-PROTOTYPE><SHORT-NAME>Value{index}</SHORT-NAME><TYPE-TREF DEST="APPLICATION-PRIMITIVE-DATA-TYPE">/Missing/Type{index}</TYPE-TREF></VARIABLE-DATA-PROTOTYPE>'
+        for index in range(reference_count)
+    )
+    elements = f'<SENDER-RECEIVER-INTERFACE><SHORT-NAME>Interface</SHORT-NAME><IS-SERVICE>false</IS-SERVICE><DATA-ELEMENTS>{variables}</DATA-ELEMENTS></SENDER-RECEIVER-INTERFACE>'
+    paths[1].write_text(document('Interfaces', elements), encoding='utf-8')
+    other = service.workspace / 'other-references.arxml'
+    other.write_text(document('OtherInterfaces', elements), encoding='utf-8')
+    opened = service.open_project([str(path) for path in [*paths, other]])
+    assert [(item.file_id, item.code, item.severity) for item in opened.diagnostics] == [
+        ('f1', 'XSD_ERROR', 'error'),
+        ('f2', 'UNRESOLVED_REFERENCE', 'warning'),
+        ('f3', 'UNRESOLVED_REFERENCE', 'warning'),
+    ]
+    details = service.project_info(opened.project_id)
+    for summary in opened.diagnostics:
+        originals = [item for item in details.diagnostics if (item.file_id, item.code, item.severity) == (summary.file_id, summary.code, summary.severity)]
+        assert len(originals) >= 2
+        assert f'共 {len(originals)} 条' in summary.message
+        assert 'project_info(project_id)' in summary.message
+        assert summary.ref is None and summary.xpath is None and summary.line is None
+    references = [item for item in details.diagnostics if item.code == 'UNRESOLVED_REFERENCE']
+    assert len(references) == reference_count * 2
+    assert all(item.ref and item.xpath and '/Missing/Type' in item.message for item in references)
+    assert details.files == opened.files and details.revision == opened.revision == 0
+    assert service.project_info(opened.project_id).diagnostics == details.diagnostics
+    assert len(service.validate_project(opened.project_id).diagnostics) >= reference_count * 2
+
+
 def test_revision_preview_and_unsaved_close_guards(project):
     service, info, _ = project
     preview = service.preview_changes(info.project_id)
